@@ -1,0 +1,4 @@
+# Keep SQL files in LF on every machine. Some migrations patch function bodies
+# by exact text, which fails when Windows checks the files out with CRLF.
+*.sql text eol=lf
+*.sh text eol=lf

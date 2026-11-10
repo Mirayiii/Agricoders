@@ -1,0 +1,1 @@
+export { useVisibleTabs } from "./useVisibleTabs";

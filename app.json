@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "MEAH Trading",
+    "slug": "meah-trading",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "meahtrading",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.meah.trading"
+    },
+    "android": {
+      "package": "com.meah.trading",
+      "adaptiveIcon": {
+        "backgroundColor": "#166534",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F3F7F4",
+          "image": "./assets/splash-icon.png"
+        }
+      ],
+      "expo-font",
+      "expo-sharing",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
