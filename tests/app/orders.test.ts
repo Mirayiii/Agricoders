@@ -73,8 +73,10 @@ test("each status has its Figma primary action (task 3.3)", () => {
   assert.equal(nextStepFor({ ...base, status: "for_preparation", can: all }).text, "Warehouse is packing — 2 of 4 packed.");
   assert.equal(nextStepFor({ ...base, status: "for_delivery", can: all, delivery: { status: "scheduled", when: "today at 10:30 AM", driver: "Rico", receivedBy: null } }).action?.label, "Mark delivered");
   const unassigned = nextStepFor({ ...base, status: "for_delivery", can: all, delivery: { status: "scheduled", when: "today at 10:30 AM", driver: null, receivedBy: null } });
-  assert.equal(unassigned.action, undefined, "DE-04: no Mark delivered until a driver is assigned");
-  assert.match(unassigned.text, /Assign a driver/);
+  assert.equal(unassigned.action?.label, "Mark delivered", "prototype: no driver needed");
+  // A driver or a booked stop doesn't mean it has left: only the stop's "Out for delivery" status does.
+  assert.equal(unassigned.text, "Packed. Delivery today at 10:30 AM.");
+  assert.equal(nextStepFor({ ...base, status: "for_delivery", can: all, delivery: { status: "for_delivery", when: "today at 10:30 AM", driver: "Rico", receivedBy: null } }).text, "Out for delivery today at 10:30 AM with Rico.");
   assert.equal(nextStepFor({ ...base, status: "completed", can: all, delivery: { status: "completed", when: "", driver: null, receivedBy: "Joy Santos" } }).text, "Delivered · received by Joy Santos. This order is locked.");
   assert.equal(nextStepFor({ ...base, status: "cancelled", can: all }).action, undefined);
   // Without the permission, the text stays and the button goes.
@@ -83,7 +85,7 @@ test("each status has its Figma primary action (task 3.3)", () => {
 
 test("what can change on an order matches the server rules", () => {
   assert.deepEqual(orderEditing("for_verification", true), { closed: false, canEditItems: true, canChangeDiscount: true, canSetSalesInvoice: true, salesInvoiceNeedsReason: false });
-  assert.deepEqual(orderEditing("for_delivery", true), { closed: false, canEditItems: false, canChangeDiscount: true, canSetSalesInvoice: true, salesInvoiceNeedsReason: false });
+  assert.deepEqual(orderEditing("for_delivery", true), { closed: false, canEditItems: true, canChangeDiscount: true, canSetSalesInvoice: true, salesInvoiceNeedsReason: false });
   assert.deepEqual(orderEditing("completed", true), { closed: true, canEditItems: false, canChangeDiscount: false, canSetSalesInvoice: true, salesInvoiceNeedsReason: false });
   assert.deepEqual(orderEditing("cancelled", true), { closed: true, canEditItems: false, canChangeDiscount: false, canSetSalesInvoice: false, salesInvoiceNeedsReason: false });
   // Completed order with an SI#: only an administrator may replace it, with a reason.
@@ -108,4 +110,19 @@ test("Orders search matches the order number, DR# and customer (requirement OM-0
   for (const term of ["ord-1043", "dr-0007", "dr0007", "0007", "negril", "casa verde"]) assert.ok(text.includes(term), term);
   assert.ok(orderSearchText({ ...order, delivery_receipts: [{ dr_number: 12 }] }).includes("dr-0012"), "array form from the API");
   assert.ok(!orderSearchText({ ...order, delivery_receipts: null }).includes("dr-"), "no receipt yet");
+});
+
+test("repacking after an edit: the next step says so and offers no Mark delivered", () => {
+  const delivery = { status: "scheduled" as const, when: "today at 10:30 AM", driver: "Rico", receivedBy: null };
+  const step = nextStepFor({ flagged: false, packed: 3, itemCount: 4, removalsToConfirm: 1, delivery, status: "for_preparation", can: all });
+  assert.equal(step.text, "Changed after packing — warehouse is repacking, 3 of 4 packed. 1 removed item needs to be taken out. The delivery today at 10:30 AM stays booked.");
+  assert.notEqual(step.action?.key, "markDelivered");
+  assert.equal(nextStepFor({ flagged: false, packed: 1, itemCount: 2, removalsToConfirm: 2, delivery: null, status: "for_preparation", can: none }).text, "Warehouse is packing — 1 of 2 packed. 2 removed items need to be taken out.");
+});
+
+test("the activity log describes edits, repacking and removed items", () => {
+  assert.equal(describeActivity("order_edited", { changed_lines: [{}], added_lines: [], removed_lines: [{}, {}], repack_required: true }), "Order edited · items 1 changed, 2 removed · repack needed");
+  assert.equal(describeActivity("order_edited", { changed_lines: [], added_lines: [], removed_lines: [], notes_changed: true, repack_required: false }), "Order edited");
+  assert.equal(describeActivity("status_changed", { to_status: "for_preparation", reason: "repack_required" }), "Sent back to Packing after a change");
+  assert.equal(describeActivity("removed_item_confirmed", { description: "Tomatoes" }), "Tomatoes confirmed taken out of the packed order");
 });

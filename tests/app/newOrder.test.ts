@@ -11,6 +11,7 @@ import {
   estimate,
   fromTime,
   lineCents,
+  outOfStockProblem,
   priceLines,
   priceProblem,
   stepQuantity,
@@ -85,7 +86,7 @@ test("a changed price needs a reason (administrators only send it)", () => {
   const [changed] = priceLines([{ productId: "tom", unitKey: "base", quantityText: "2", priceText: "80" }], catalog);
   assert.equal(changed.special, true);
   assert.equal(changed.amountCents, 16000);
-  assert.equal(priceProblem(changed), "Add a reason for the new price");
+  assert.equal(priceProblem(changed), null, "a reason is optional (prototype)");
   assert.equal(priceProblem({ ...changed, line: { ...changed.line, priceReason: "Agreed" } }), null);
 });
 
@@ -122,4 +123,40 @@ test("the saved payload sends no prices unless an administrator changed one", ()
     { product_id: "tom", product_sku_id: "tom-box", variety_id: null, quantity: 1, unit_of_measurement: "box", notes: "" },
     { product_id: "car", product_sku_id: null, variety_id: null, quantity: 2, unit_of_measurement: "kg", notes: "", special_price: 90, special_price_reason: "Agreed" },
   ]);
+});
+
+test("out of stock (Jac, 8 Nov): tracked units with none on hand can't be added; low, untracked and unknown stock can", () => {
+  // Office staff: no quantities, only the list of out-of-stock SKUs.
+  const office = buildCatalog(products, list, [], [], now, new Set(["tom-box"]));
+  const tom = office.find((item) => item.id === "tom")!;
+  assert.deepEqual(tom.units.map((unit) => [unit.unit, unit.outOfStock]), [["kg", false], ["box", true]], "stock is per unit");
+  assert.deepEqual(stockTag(tom.units[1]), { label: "Out of stock", tone: "danger" }, "shown with a clear label, even without quantities");
+  assert.equal(stockTag(tom.units[0]), undefined, "unknown stock gets no tag and stays addable");
+  // Administrator: availability says out of stock.
+  const admin = buildCatalog(products, list, [], [{ product_id: "car", sku_id: "car-kg", current_quantity: 0, status: "out_of_stock" }], now);
+  assert.equal(admin.find((item) => item.id === "car")!.units[0].outOfStock, true);
+  // Low stock stays selectable, and ordering more than on hand is only a warning.
+  const low = buildCatalog(products, list, [], stock, now);
+  const lowLines = priceLines([{ productId: "car", unitKey: "base", quantityText: "5" }], low);
+  assert.equal(lowLines[0].outOfStock, false);
+  assert.equal(lowLines[0].overStock, true);
+  assert.equal(outOfStockProblem(lowLines), null);
+  // A failed lookup (no rows at all) never reads as zero.
+  const unknown = buildCatalog(products, list, [], [], now);
+  assert.ok(unknown.every((item) => item.units.every((unit) => !unit.outOfStock)));
+  // A copied line (Order again) whose product ran out must be removed to continue.
+  const copied = priceLines([{ productId: "car", unitKey: "base", quantityText: "2" }, { productId: "tom", unitKey: "base", quantityText: "1" }], admin);
+  assert.equal(copied.find((line) => line.item.id === "car")!.overStock, false, "out of stock is not the over-stock warning");
+  assert.equal(outOfStockProblem(copied), "Carrots (kg) is out of stock. Remove it to continue.");
+});
+
+test("missing stock is not zero (Jac, 8 Nov afternoon): no stock record shows Stock unavailable and stays addable", () => {
+  const catalog = buildCatalog(products, list, [], [{ product_id: "car", sku_id: "car-kg", current_quantity: null, status: null }], now);
+  const unit = catalog.find((item) => item.id === "car")!.units[0];
+  assert.equal(unit.outOfStock, false, "not blocked");
+  assert.equal(unit.stockUnknown, true);
+  assert.deepEqual(stockTag(unit), { label: "Stock unavailable", tone: "neutral" });
+  const lines = priceLines([{ productId: "car", unitKey: "base", quantityText: "50" }], catalog);
+  assert.equal(lines[0].overStock, false, "no over-stock warning against an unknown count");
+  assert.equal(outOfStockProblem(lines), null);
 });

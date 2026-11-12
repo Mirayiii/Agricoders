@@ -15,14 +15,14 @@ const ITEMS = {
 } satisfies Record<string, MoreItem>;
 
 /**
- * The More menu for each role, as in requirement SI-02: administrative staff
- * get Customers, Notifications and Settings; Products & stock is for the
- * administrator only. Batch update prices opens from Products & stock.
+ * The More menu for each role, following MEAH-Prototype 2.html: administrative
+ * staff get Customers and Products & stock, purchasing staff get Products &
+ * stock. Batch update prices opens from Products & stock.
  */
 const MENUS: Record<ProfileRole, MoreItem[]> = {
   administrator: [ITEMS.users, ITEMS.customers, ITEMS.products, ITEMS.reports, ITEMS.notifications, ITEMS.settings],
-  administrative_staff: [ITEMS.customers, ITEMS.notifications, ITEMS.settings],
-  fulfillment_staff: [ITEMS.notifications, ITEMS.settings],
+  administrative_staff: [ITEMS.customers, ITEMS.products, ITEMS.notifications, ITEMS.settings],
+  fulfillment_staff: [ITEMS.products, ITEMS.notifications, ITEMS.settings],
   delivery_staff: [ITEMS.notifications, ITEMS.settings],
 };
 

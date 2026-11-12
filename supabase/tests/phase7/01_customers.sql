@@ -113,7 +113,7 @@ insert into public.order_items (order_id, product_id, quantity, unit_of_measurem
 insert into public.deliveries (id, order_id, assigned_driver_id, scheduled_date) values
   ('00000000-0000-0000-0000-0000000007f9', '00000000-0000-0000-0000-0000000007e1', '00000000-0000-0000-0000-0000000007d1', current_date);
 insert into t values ('done', pg_temp.run('00000000-0000-0000-0000-0000000007d1',
-  $q$select public.complete_delivery('00000000-0000-0000-0000-0000000007f9', 'Mark', gen_random_uuid())$q$));
+  $q$select public.complete_delivery('00000000-0000-0000-0000-0000000007f9', 'Mark', gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000007f9'))$q$));
 -- A preferred product for Casa Verde.
 insert into public.customer_product_preferences (customer_id, product_id, ranking) values ((select id from c7), '00000000-0000-0000-0000-0000000007b4', 1);
 
@@ -167,20 +167,24 @@ select pg_temp.ok((select count(*) = 1 from public.delivery_receipts where order
 
 -- Requirement CU-01: business type and preferred delivery window, both optional.
 insert into t values ('typed', pg_temp.run('00000000-0000-0000-0000-0000000007c1',
-  $q$select public.save_customer(null, '{"customer_code":"P7-CU01","business_name":"Kusina Uno","business_type":"  Restaurant   chain ","preferred_delivery_window":" 6:00 to 9:00 AM "}', gen_random_uuid())$q$));
+  $q$select public.save_customer(null, '{"customer_code":"P7-CU01","business_name":"Kusina Uno","business_type":"  Restaurant   chain ","preferred_delivery_window":" 6:00 to 9:00 AM ","notes":"Back gate"}', gen_random_uuid())$q$));
 select pg_temp.ok((select business_type = 'Restaurant chain' and preferred_delivery_window = '6:00 to 9:00 AM' from public.customers where customer_code = 'P7-CU01'), 'office staff save a business type and delivery window, trimmed');
 select pg_temp.run('00000000-0000-0000-0000-0000000007c1', format($q$select public.save_customer(%L, '{"customer_code":"P7-CU01","business_name":"Kusina Uno"}', gen_random_uuid())$q$, (select (value->>'customer_id') from t where name = 'typed')));
 select pg_temp.ok((select business_type = 'Restaurant chain' and preferred_delivery_window = '6:00 to 9:00 AM' from public.customers where customer_code = 'P7-CU01'), 'an older app that doesn''t send the new fields leaves them as they are');
+-- Prototype (5 Nov): the form no longer has Notes; a save without it keeps the saved note.
+select pg_temp.ok((select notes = 'Back gate' from public.customers where customer_code = 'P7-CU01'), 'a save without notes keeps the note saved earlier');
 select pg_temp.ok((select business_type is null and preferred_delivery_window is null from public.customers where id = (select id from c7)), 'existing customers simply have none recorded');
 select pg_temp.ok((select value->'P7-CU01'->>'business_type' = 'Restaurant chain' from (select pg_temp.run('00000000-0000-0000-0000-0000000007c1', $q$select jsonb_object_agg(customer_code, to_jsonb(c)) from public.get_customers() c$q$) as value) x), 'the customer list returns the new fields');
 
 -- ---------------------------------------------------------------------------
 -- Archive and restore
 -- ---------------------------------------------------------------------------
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007f1', format($q$select public.set_customer_archived(%L, true, gen_random_uuid())$q$, (select id from c7))) = 'Only an administrator can archive or restore customers', 'purchasing staff cannot archive customers');
--- Requirement CU-01: only the administrator archives, through the function or the table.
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007c1', format($q$select public.set_customer_archived(%L, true, gen_random_uuid())$q$, (select id from c7))) = 'Only an administrator can archive or restore customers', 'administrative staff cannot archive customers (CU-01)');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007c1', format($q$update public.customers set status = 'archived', archived_at = now() where id = %L$q$, (select id from c7))) = 'Only an administrator can archive or restore customers', 'nor by changing the customer row directly');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007f1', format($q$select public.set_customer_archived(%L, true, gen_random_uuid())$q$, (select id from c7))) = 'Only administrators and administrative staff can archive or restore customers', 'purchasing staff cannot archive customers');
+-- Prototype (5 Nov): administrative staff archive and restore too, through the function or the table.
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007c1', format($q$select public.set_customer_archived(%L, true, gen_random_uuid())$q$, (select id from c7))) is null, 'administrative staff archive customers');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007c1', format($q$select public.set_customer_archived(%L, false, gen_random_uuid())$q$, (select id from c7))) is null, 'and restore them');
+select pg_temp.err('00000000-0000-0000-0000-0000000007f1', format($q$update public.customers set status = 'archived', archived_at = now() where id = %L$q$, (select id from c7)));
+select pg_temp.ok((select status = 'active' from public.customers where id = (select id from c7)), 'purchasing staff cannot archive by changing the customer row directly');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007a1', format($q$delete from public.customers where id = %L$q$, (select id from c7))) is not null, 'customers cannot be deleted from the app');
 select pg_temp.ok(pg_temp.err_owner($q$delete from public.customers where customer_code = 'P7-002'$q$) = 'Customers are archived, not deleted, so their order history is kept.', 'not even by a direct database delete, which explains that customers are archived instead');
 
@@ -188,8 +192,8 @@ insert into t values ('archived', pg_temp.run('00000000-0000-0000-0000-000000000
 insert into t values ('archivedagain', pg_temp.run('00000000-0000-0000-0000-0000000007a1', format($q$select public.set_customer_archived(%L, true, '77777777-7777-4777-8777-777777777702')$q$, (select id from c7))));
 insert into t values ('archivedtwice', pg_temp.run('00000000-0000-0000-0000-0000000007a1', format($q$select public.set_customer_archived(%L, true, gen_random_uuid())$q$, (select id from c7))));
 select pg_temp.ok((select status = 'archived' and archived_at is not null from public.customers where id = (select id from c7)), 'the administrator archives a customer');
-select pg_temp.ok((select (value->>'replayed')::boolean from t where name = 'archivedagain') and (select count(*) from public.customer_activity where customer_id = (select id from c7) and action = 'archived') = 1,
-  'a retried or repeated archive is done and logged once');
+select pg_temp.ok((select (value->>'replayed')::boolean from t where name = 'archivedagain') and (select count(*) from public.customer_activity where customer_id = (select id from c7) and action = 'archived') = 2,
+  'a retried or repeated archive is done and logged once (the second entry is the administrative staff archive above)');
 
 -- History stays.
 select pg_temp.ok((select count(*) from public.orders where customer_id = (select id from c7)) = 3, 'archiving keeps every order');
@@ -218,7 +222,7 @@ select pg_temp.ok((select pg_temp.run('00000000-0000-0000-0000-0000000007c1', $q
 -- Restore.
 insert into t values ('restored', pg_temp.run('00000000-0000-0000-0000-0000000007a1', format($q$select public.set_customer_archived(%L, false, gen_random_uuid())$q$, (select id from c7))));
 select pg_temp.ok((select status = 'active' and archived_at is null from public.customers where id = (select id from c7)), 'administrators restore a customer');
-select pg_temp.ok((select count(*) from public.customer_activity where customer_id = (select id from c7) and action = 'restored') = 1, 'the restore is logged');
+select pg_temp.ok((select count(*) from public.customer_activity where customer_id = (select id from c7) and action = 'restored') = 2, 'the restore is logged (after the administrative staff restore above)');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000007c1', format($q$select public.create_order(jsonb_build_object('customer_id', %L, 'requested_delivery_date', current_date + 1, 'order_source_id', (select id from public.order_sources where code = 'viber')), '[{"product_id":"00000000-0000-0000-0000-0000000007b1","quantity":1,"unit_of_measurement":"kg"}]', gen_random_uuid())$q$, (select id from c7))) is null,
   'a restored customer can be given a new order again');
 select pg_temp.ok((select count(*) from public.orders where customer_id = (select id from c7)) = 4, 'and it is their fourth order');

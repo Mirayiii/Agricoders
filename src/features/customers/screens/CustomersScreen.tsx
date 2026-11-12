@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from "react-native";
+import { CUSTOMER_PAGE_SIZE, pageSlice } from "@/utils/pagination";
+import { usePage } from "@/utils/usePage";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Avatar, Card, Chip, EmptyState, ErrorState, Icon, LoadingState, Screen, SearchBar, StaleNotice, StatusBadge, useToast } from "@/components";
+import { Avatar, Card, Chip, EmptyState, ErrorState, Icon, LoadingState, Pagination, Screen, SearchBar, StaleNotice, StatusBadge, useToast } from "@/components";
 import { colors, radii, shadows, spacing, text } from "@/constants/theme";
 import { OfflineReadOnly } from "@/features/sync/OfflineReadOnly";
 import { useIsOnline } from "@/services/offline";
@@ -24,10 +26,15 @@ export function CustomersScreen() {
   const counts = statusCounts(searched);
   const visible = searched.filter((row) => row.status === filter);
   const online = useIsOnline();
+  // Prototype: 10 customers per page; a new search or chip starts at page 1.
+  const [page, setPage] = usePage(`${search.trim()}|${filter}`);
+  const scroller = useRef<ScrollViewInstance>(null);
+  const goTo = (next: number) => { setPage(next); scroller.current?.scrollTo({ y: 0, animated: false }); };
 
   return (
     <Screen title="Customers" showBackButton scroll={false}>
       <ScrollView
+        ref={scroller}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 112 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -47,7 +54,8 @@ export function CustomersScreen() {
         ) : query.isError && !query.data ? (
           <ErrorState description="Customers couldn’t be loaded." onRetry={() => void query.refetch()} />
         ) : visible.length ? (
-          visible.map((row) => <CustomerRowCard key={row.id} row={row} />)
+          pageSlice(visible, page, CUSTOMER_PAGE_SIZE).map((row) => <CustomerRowCard key={row.id} row={row} />)
+            .concat(<Pagination key="pages" page={page} total={visible.length} pageSize={CUSTOMER_PAGE_SIZE} onChange={goTo} label="customers" />)
         ) : (
           <Card>
             <EmptyState

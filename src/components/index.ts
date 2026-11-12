@@ -39,3 +39,4 @@ export { Logo } from "./Logo";
 export { ReviewCard } from "./ReviewCard";
 export { StatCard } from "./StatCard";
 export { StaleNotice } from "./StaleNotice";
+export { Pagination } from "./Pagination";

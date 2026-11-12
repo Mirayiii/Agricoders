@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { mutate, unwrap, useAppMutation, useRequestIds } from "@/services/data";
 import { supabase } from "@/services/supabase";
-import type { Receipt, StopRow } from "./deliveriesLogic";
+import { receiptNumber, type Receipt, type StopRow } from "./deliveriesLogic";
 
 export const deliveriesKeys = {
   all: ["deliveries"] as const,
@@ -12,7 +12,7 @@ export const deliveriesKeys = {
 };
 
 const STOP_COLUMNS =
-  "id,order_id,scheduled_date,scheduled_time,status,route_position,received_by,completed_at,assigned_driver_id,orders(order_number,updated_at,delivery_time_start,delivery_time_end,customers(business_name,brand_name,contact_person,phone,delivery_address),order_items(id)),profiles!deliveries_assigned_driver_id_fkey(full_name,email)";
+  "id,order_id,scheduled_date,scheduled_time,status,route_position,received_by,completed_at,assigned_driver_id,orders(order_number,updated_at,status,packing_version,delivery_time_start,delivery_time_end,customers(business_name,brand_name,contact_person,phone,delivery_address),order_items(id)),profiles!deliveries_assigned_driver_id_fkey(full_name,email)";
 export const DONE_WINDOW_DAYS = 30;
 
 /** Open stops and the last 30 days of delivered ones. Drivers only get their own (RLS). */
@@ -59,7 +59,7 @@ export const toReceipt = (row: ReceiptRow): Receipt => ({
   receipt_id: row.id,
   order_id: row.order_id,
   dr_number: row.dr_number,
-  dr_label: `DR-${String(row.dr_number).padStart(4, "0")}`,
+  dr_label: `DR-${receiptNumber(row)}`,
   issued_at: row.issued_at,
   finalized_at: row.finalized_at ?? null,
   voided_at: row.voided_at ?? null,
@@ -108,10 +108,4 @@ export function useAssignDriver() {
   );
 }
 
-export function useIssueReceipt() {
-  const once = useOnce();
-  return useAppMutation(
-    (orderId: string) => once(`receipt:${orderId}`, (id) => mutate<Receipt>("issue_delivery_receipt", { p_order_id: orderId }, id)),
-    [deliveriesKeys.all, ["orders"]],
-  );
-}
+

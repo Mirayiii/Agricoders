@@ -6,5 +6,5 @@ import { ProductsScreen } from "@/features/products";
 
 export default function ProductsRoute() {
   const { filter } = useLocalSearchParams<{ filter?: string }>();
-  return <PermissionGate permission={PERMISSIONS.viewInventory}><ProductsScreen initialFilter={filter === "stocked" || filter === "low" || filter === "out" ? filter : "all"} /></PermissionGate>;
+  return <PermissionGate permission={PERMISSIONS.viewInventory}><ProductsScreen initialFilter={filter === "stocked" ? "stocked" : "all"} /></PermissionGate>;
 }

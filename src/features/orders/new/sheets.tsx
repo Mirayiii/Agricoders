@@ -130,13 +130,17 @@ export function UnitSheet({ visible, product, units, selected, onSelect, onClose
     <BottomSheet visible={visible} onClose={onClose}>
       <Text style={styles.title}>Unit for {product}</Text>
       <View>
-        {units.map((unit) => (
-          <Pressable key={unit.key} accessibilityRole="radio" accessibilityState={{ selected: unit.key === selected }} onPress={() => onSelect(unit.key)} style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}>
+        {units.map((unit) => {
+          // Out of stock can't be chosen (Jac, 8 Nov), unless the line already uses it.
+          const blocked = unit.outOfStock && unit.key !== selected;
+          return (
+          <Pressable key={unit.key} accessibilityRole="radio" accessibilityState={{ selected: unit.key === selected, disabled: blocked }} disabled={blocked} onPress={() => onSelect(unit.key)} style={({ pressed }) => [styles.listRow, blocked && styles.blocked, pressed && styles.pressed]}>
             <Text style={styles.listLabel}>{unit.unit}</Text>
-            <Text style={styles.listMeta}>{formatMoney(unit.price)} / {unit.unit}</Text>
+            <Text style={[styles.listMeta, unit.outOfStock && styles.outText]}>{unit.outOfStock ? "Out of stock" : `${formatMoney(unit.price)} / ${unit.unit}`}</Text>
             {unit.key === selected ? <Icon name="check" size={18} color={colors.primary} /> : <View style={styles.checkSpace} />}
           </Pressable>
-        ))}
+          );
+        })}
       </View>
     </BottomSheet>
   );
@@ -283,6 +287,8 @@ const styles = StyleSheet.create({
   listRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   listLabel: { ...text.bodyStrong, flex: 1, color: colors.text },
   listMeta: { ...text.caption, color: colors.textSecondary },
+  blocked: { opacity: 0.55 },
+  outText: { color: colors.danger },
   checkSpace: { width: 18 },
   remove: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: radii.full, backgroundColor: colors.background },
   disabled: { opacity: 0.4 },

@@ -4,6 +4,6 @@ export { SetPasswordScreen } from "./screens/SetPasswordScreen";
 export { WelcomeScreen } from "./screens/WelcomeScreen";
 export { PermissionGate } from "./PermissionGate";
 export { useAuth, usePermission } from "./useAuth";
-export { ChangePasswordScreen } from "./screens/ChangePasswordScreen";
+export { ChangePasswordSheet } from "./components/ChangePasswordSheet";
 export { RolePreviewFrame } from "./components/RolePreviewFrame";
 export { canPreviewRoles } from "./rolePreview";

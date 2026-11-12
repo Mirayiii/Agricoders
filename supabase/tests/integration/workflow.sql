@@ -69,7 +69,7 @@ select pg_temp.ok((select (x).status = 'confirmed' from o), 'flow: order confirm
 -- Packing (Phase 5).
 select pg_temp.ok(pg_temp.call(:packer, format($q$select public.start_packing(%L, gen_random_uuid())$q$, (select (x).id from o))) ? 'error' = false, 'flow: packing staff start packing');
 select pg_temp.ok(pg_temp.call(:office, format($q$select public.issue_delivery_receipt(%L, gen_random_uuid())$q$, (select (x).id from o))) ? 'dr_number', 'flow: office staff print the delivery receipt while it is packed');
-select pg_temp.ok(pg_temp.call(:packer, format($q$select public.offline_set_item_packed(%L, true, gen_random_uuid(), %L)$q$, i.id,
+select pg_temp.ok(pg_temp.call(:packer, format($q$select public.offline_set_item_packed(%1$L, true, gen_random_uuid(), tests.with_pv_item(%1$L, %2$L))$q$, i.id,
   jsonb_build_object('queued_at', now() - interval '10 minutes', 'seen', jsonb_build_object('packed', false, 'quantity', i.quantity, 'unit', i.unit_of_measurement)))) ? 'error' = false, 'flow: a line ticked offline is sent')
   from public.order_items i where i.order_id = (select (x).id from o);
 select pg_temp.ok((select (x).status = 'for_delivery' from o), 'flow: all lines packed, order For delivery');
@@ -81,15 +81,15 @@ select pg_temp.ok((select v is not null from t where name = 'delivery'), 'flow: 
 create temp table first_seen as select (select (x).updated_at from o) as order_updated_at;
 grant select on first_seen to authenticated;
 select pg_temp.ok(pg_temp.call(:office, format($q$select public.assign_delivery_driver(%L, 'b0000000-0000-0000-0000-000000000005', gen_random_uuid())$q$, (select v #>> '{}' from t where name = 'delivery'))) ? 'error' = false, 'flow: the stop is moved to Jun');
-insert into t select 'stale', pg_temp.call(:driver, format($q$select public.offline_complete_delivery(%L, 'Maria', 'e0000000-0000-4000-8000-000000000002', %L)$q$, (select v #>> '{}' from t where name = 'delivery'),
+insert into t select 'stale', pg_temp.call(:driver, format($q$select public.offline_complete_delivery(%1$L, 'Maria', 'e0000000-0000-4000-8000-000000000002', tests.with_pv_delivery(%1$L, %2$L))$q$, (select v #>> '{}' from t where name = 'delivery'),
   jsonb_build_object('queued_at', now() - interval '5 minutes', 'seen', jsonb_build_object('scheduled_date', current_date, 'order_updated_at', (select order_updated_at from first_seen)))));
 select pg_temp.ok((select v->>'error' like 'OFCON This stop was reassigned to Jun Villanueva%' from t where name = 'stale'), 'flow: Rico''s queued "delivered" is refused with the reason, not applied');
 select pg_temp.ok(pg_temp.call(:driver, $q$insert into public.sync_rejections (request_id, action, rpc_name, kind, reason, queued_at) values ('e0000000-0000-4000-8000-000000000002', 'Mark delivered', 'offline_complete_delivery', 'conflict', 'This stop was reassigned', now()) on conflict (user_id, request_id) do nothing$q$) ? 'error' = false, 'flow: the refusal is recorded for the administrator, the way the app sends it (duplicates ignored)');
 select pg_temp.ok((select jsonb_array_length(pg_temp.call(:admin, $q$select coalesce(jsonb_agg(reason), '[]') from public.sync_rejections$q$)) = 1), 'flow: the administrator sees it under Offline sync problems');
-insert into t select 'done', pg_temp.call(:driver2, format($q$select public.offline_complete_delivery(%L, 'Maria Santos', 'e0000000-0000-4000-8000-000000000003', %L)$q$, (select v #>> '{}' from t where name = 'delivery'),
+insert into t select 'done', pg_temp.call(:driver2, format($q$select public.offline_complete_delivery(%1$L, 'Maria Santos', 'e0000000-0000-4000-8000-000000000003', tests.with_pv_delivery(%1$L, %2$L))$q$, (select v #>> '{}' from t where name = 'delivery'),
   jsonb_build_object('queued_at', now() - interval '1 minute', 'seen', jsonb_build_object('scheduled_date', current_date, 'order_updated_at', (select (x).updated_at from o)))));
 select pg_temp.ok((select not v ? 'error' from t where name = 'done'), 'flow: Jun marks it delivered');
-insert into t select 'done again', pg_temp.call(:driver2, format($q$select public.offline_complete_delivery(%L, 'Maria Santos', 'e0000000-0000-4000-8000-000000000003', %L)$q$, (select v #>> '{}' from t where name = 'delivery'),
+insert into t select 'done again', pg_temp.call(:driver2, format($q$select public.offline_complete_delivery(%1$L, 'Maria Santos', 'e0000000-0000-4000-8000-000000000003', tests.with_pv_delivery(%1$L, %2$L))$q$, (select v #>> '{}' from t where name = 'delivery'),
   jsonb_build_object('queued_at', now() - interval '1 minute', 'seen', jsonb_build_object('scheduled_date', current_date, 'order_updated_at', (select order_updated_at from first_seen)))));
 select pg_temp.ok((select a.v = b.v - 'replayed' and (b.v->>'replayed')::boolean from t a, t b where a.name = 'done' and b.name = 'done again'), 'flow: the same change sent again after a lost answer returns the first result');
 select pg_temp.ok((select (x).status = 'completed' from o) and (select count(*) = 1 from public.order_activity where order_id = (select (x).id from o) and action = 'status_changed' and details->>'to_status' = 'completed'), 'flow: completed once');

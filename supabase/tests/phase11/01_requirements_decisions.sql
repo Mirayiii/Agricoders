@@ -1,5 +1,5 @@
 -- Jac's 4 Nov decisions on the requirements document (Revision 2.1):
--- DE-04 completion, PU-01 bought quantities and HD-03 counts, NO-02 usual
+-- DE-04 completion, the buy list (read-only since 5 Nov) and HD-03 counts, NO-02 usual
 -- quantities, AS-03 push switches, CU-01 restore.
 \set ON_ERROR_STOP 1
 create function pg_temp.ok(cond boolean, label text) returns void language plpgsql as $$
@@ -54,7 +54,7 @@ insert into public.products (id, product_name, unit_of_measurement) values
   ('00000000-0000-0000-0000-00000000b112', 'R11 Garlic', 'kg');
 
 -- ===========================================================================
--- DE-04: a driver must be assigned; then that driver or the administrator
+-- Mark delivered: administrator, administrative staff or the assigned driver
 -- ===========================================================================
 insert into public.orders (id, customer_id, order_source, encoded_by, status, requested_delivery_date) values
   ('00000000-0000-0000-0000-0000000011e1', '00000000-0000-0000-0000-00000000c111', 'phone', '00000000-0000-0000-0000-0000000011c1', 'for_delivery', (select today from d)),
@@ -66,26 +66,19 @@ insert into public.deliveries (id, order_id, assigned_driver_id, scheduled_date,
   ('00000000-0000-0000-0000-0000000011f8', '00000000-0000-0000-0000-0000000011e1', null, (select today from d), 'for_delivery'),
   ('00000000-0000-0000-0000-0000000011f9', '00000000-0000-0000-0000-0000000011e2', '00000000-0000-0000-0000-0000000011d1', (select today from d), 'for_delivery');
 
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011a1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f8', null, gen_random_uuid())$q$)
-  = 'Assign a driver before marking this delivery delivered', 'not even the administrator can complete a stop with no driver (DE-04)');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011a1', $q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000011f8', null, gen_random_uuid(), jsonb_build_object('queued_at', now()))$q$)
-  = 'Assign a driver before marking this delivery delivered', 'nor through offline sync');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011a1', $q$select public.update_delivery_status('00000000-0000-0000-0000-0000000011f8', 'completed', null)$q$)
-  = 'Assign a driver before marking this delivery delivered', 'nor through the general delivery status action');
-insert into t values ('step1', to_jsonb(pg_temp.err('00000000-0000-0000-0000-0000000011a1', $q$select public.transition_order_status('00000000-0000-0000-0000-0000000011e1', 'completed', null)$q$)));
-select pg_temp.ok((select value is not null from t where name = 'step1')
-  and (select status = 'for_delivery' from public.orders where id = '00000000-0000-0000-0000-0000000011e1'), 'nor through the general order status action');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d2', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f9', null, gen_random_uuid())$q$) is not null, 'another driver cannot complete Rico''s stop');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f9', null, gen_random_uuid())$q$) is not null, 'administrative staff cannot complete it');
-insert into t values ('step2', to_jsonb(pg_temp.err('00000000-0000-0000-0000-0000000011a1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f9', 'Mark', gen_random_uuid())$q$)));
-select pg_temp.ok((select value is null from t where name = 'step2')
-  and (select status = 'completed' from public.orders where id = '00000000-0000-0000-0000-0000000011e2'), 'once a driver is assigned, the administrator can complete it');
--- Assign Rico to the first stop: now he can complete it.
-update public.deliveries set assigned_driver_id = '00000000-0000-0000-0000-0000000011d1' where id = '00000000-0000-0000-0000-0000000011f8';
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f8', null, gen_random_uuid())$q$) is null, 'the assigned driver completes their stop');
+-- Prototype (5 Nov) replaces DE-04: no driver is needed; the administrator,
+-- administrative staff or the assigned driver marks the stop delivered.
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d2', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f9', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000011f9'))$q$) is not null, 'another driver cannot complete Rico''s stop');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011f1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f8', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000011f8'))$q$) = 'You do not have permission to mark deliveries delivered', 'purchasing staff cannot complete a stop');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f8', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000011f8'))$q$) = 'You can only confirm your own stops', 'a driver cannot complete a stop with no driver');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f8', 'Ana', gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000011f8'))$q$) is null, 'administrative staff complete a stop with no driver');
+select pg_temp.ok((select status = 'completed' from public.orders where id = '00000000-0000-0000-0000-0000000011e1'), 'and the order is completed');
+select pg_temp.ok((select received_by = 'Ana' and assigned_driver_id is null from public.deliveries where id = '00000000-0000-0000-0000-0000000011f8'), 'received-by is kept, still with no driver');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000011f9', 'Mark', gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000011f9'))$q$) is null, 'the assigned driver completes their stop');
+select pg_temp.ok((select status = 'completed' from public.orders where id = '00000000-0000-0000-0000-0000000011e2'), 'and that order is completed');
 
 -- ===========================================================================
--- PU-01: bought quantities per product and delivery day
+-- To buy: read-only, demand less stock (prototype, 5 Nov; was PU-01)
 -- ===========================================================================
 insert into public.orders (id, customer_id, order_source, encoded_by, status, requested_delivery_date) values
   ('00000000-0000-0000-0000-0000000012e1', '00000000-0000-0000-0000-00000000c112', 'phone', '00000000-0000-0000-0000-0000000011c1', 'confirmed', (select today from d)),
@@ -105,37 +98,31 @@ create function pg_temp.list(uid uuid, p_from date, p_to date) returns jsonb lan
   select pg_temp.run(uid, format('select public.get_buy_list(%L, %L)', p_from, p_to));
 $$;
 
+-- Prototype (5 Nov, replaces PU-01 ticks): the list is read-only; what is left
+-- to buy is the demand less the stock on hand.
 select pg_temp.ok((pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'quantity')::numeric = 45
-  and (pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'remaining')::numeric = 45, 'three days need 45 kg of onions, none bought yet');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b111', 'kg', null, current_date, true, gen_random_uuid())$q$) like 'Only purchasing staff and administrators%', 'administrative staff cannot tick the buy list');
-
--- Purchasing ticks onions over the three days.
-select pg_temp.run('00000000-0000-0000-0000-0000000011f1', format($q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b111', 'kg', %L, %L, true, gen_random_uuid())$q$, (select today from d), (select today + 2 from d)));
-select pg_temp.ok((select count(*) = 3 and sum(bought_quantity) = 45 from public.buy_list_purchases where product_id = '00000000-0000-0000-0000-00000000b111'), 'ticking saves the bought quantity for each of the three days (45 kg)');
-select pg_temp.ok((pg_temp.line('00000000-0000-0000-0000-0000000011a1', (select today from d), (select today from d), 'R11 Onions')->>'remaining')::numeric = 0
-  and (pg_temp.line('00000000-0000-0000-0000-0000000011a1', null, (select today + 1 from d), 'R11 Onions')->>'bought')::numeric = 30, 'other date filters read the same records, for the administrator too');
-select pg_temp.ok((pg_temp.list('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d))->>'bought_lines')::int = 1
-  and (pg_temp.list('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d))->>'total_lines')::int = 2, 'progress: 1 of 2 lines bought');
-select pg_temp.ok((select (value->>'awaiting_buying')::int = 1 from (select pg_temp.run('00000000-0000-0000-0000-0000000011f1', 'select public.get_purchasing_today()') as value) x),
-  'Purchasing Home: today''s order still awaits buying (garlic not bought)');
-
--- Demand on day 2 rises by 5 kg: 50 kg needed, 45 bought.
-update public.order_items set quantity = 15 where id = '00000000-0000-0000-0000-0000000012a2';
-select pg_temp.ok((pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'remaining')::numeric = 5
-  and (pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'bought')::numeric = 45, 'demand rises to 50 kg: the line shows 5 kg still needed');
-select pg_temp.ok((pg_temp.list('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d))->>'bought_lines')::int = 0, 'and it no longer counts as bought');
-select pg_temp.ok((pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today from d), 'R11 Onions')->>'remaining')::numeric = 0, 'today alone is still fully bought');
--- Ticking again tops it up to 50 kg.
-select pg_temp.run('00000000-0000-0000-0000-0000000011f1', format($q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b111', 'kg', %L, %L, true, gen_random_uuid())$q$, (select today from d), (select today + 2 from d)));
-select pg_temp.ok((select sum(bought_quantity) = 50 from public.buy_list_purchases where product_id = '00000000-0000-0000-0000-00000000b111')
-  and (pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'remaining')::numeric = 0, 'ticking again brings the bought quantity to 50 kg');
--- Garlic bought: today's order no longer awaits buying.
-select pg_temp.run('00000000-0000-0000-0000-0000000011a1', format($q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b112', 'kg', null, %L, true, gen_random_uuid())$q$, (select today from d)));
-select pg_temp.ok((select (value->>'awaiting_buying')::int = 0 and (value->>'awaiting_packing')::int = 1 from (select pg_temp.run('00000000-0000-0000-0000-0000000011f1', 'select public.get_purchasing_today()') as value) x),
-  'Purchasing Home: nothing left to buy today, one order still to pack');
--- Unticking a range clears those days only.
-select pg_temp.run('00000000-0000-0000-0000-0000000011f1', format($q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b111', 'kg', %L, %L, false, gen_random_uuid())$q$, (select today + 2 from d), (select today + 2 from d)));
-select pg_temp.ok((select count(*) = 2 from public.buy_list_purchases where product_id = '00000000-0000-0000-0000-00000000b111'), 'unticking one day keeps the other days');
+  and pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->'remaining' = 'null'::jsonb, 'three days need 45 kg of onions; stock isn''t tracked, so nothing is subtracted or assumed');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011f1', $q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b111', 'kg', null, current_date, true, gen_random_uuid())$q$) like 'The buy list no longer has ticks%', 'lines can no longer be ticked as bought');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.set_buy_list_bought('00000000-0000-0000-0000-00000000b111', 'kg', null, current_date, true, gen_random_uuid())$q$) like 'Only purchasing staff and administrators%', 'administrative staff are refused first');
+select pg_temp.ok((select count(*) = 0 from public.buy_list_purchases where product_id = '00000000-0000-0000-0000-00000000b111'), 'nothing is saved as bought');
+-- Stock on hand lowers what is left to buy.
+update public.products set track_stock = true where id = '00000000-0000-0000-0000-00000000b111';
+insert into public.product_skus (id, product_id, selling_sku, unit_of_measurement) values ('00000000-0000-0000-0000-0000000011b5', '00000000-0000-0000-0000-00000000b111', 'R11-ON-KG', 'kg');
+insert into public.inventory (sku_id, current_quantity) values ('00000000-0000-0000-0000-0000000011b5', 30);
+select pg_temp.ok((pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'stock')::numeric = 30
+  and (pg_temp.line('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d), 'R11 Onions')->>'remaining')::numeric = 15, 'with 30 kg in stock, purchasing sees 15 kg left to buy');
+select pg_temp.ok((pg_temp.list('00000000-0000-0000-0000-0000000011f1', (select today from d), (select today + 2 from d))->>'short_lines')::int = 1, 'one tracked line is short of stock (untracked garlic has no stock figure)');
+-- Purchasing Home: today's order needs 20 kg onions (30 in stock) and 2 kg garlic.
+select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000011f1', $q$select public.get_purchasing_today()$q$)->>'awaiting_buying')::int = 0,
+  'Purchasing Home: untracked garlic is not counted as short (its stock is unknown, not zero)');
+insert into public.product_skus (id, product_id, selling_sku, unit_of_measurement) values ('00000000-0000-0000-0000-0000000011b6', '00000000-0000-0000-0000-00000000b112', 'R11-GA-KG', 'kg');
+update public.products set track_stock = true where id = '00000000-0000-0000-0000-00000000b112';
+insert into public.inventory (sku_id, current_quantity) values ('00000000-0000-0000-0000-0000000011b6', 0);
+select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000011f1', $q$select public.get_purchasing_today()$q$)->>'awaiting_buying')::int = 1,
+  'with garlic tracked at 0 kg, today''s order awaits buying');
+update public.inventory set current_quantity = 5 where sku_id = '00000000-0000-0000-0000-0000000011b6';
+select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000011f1', $q$select public.get_purchasing_today()$q$)->>'awaiting_buying')::int = 0,
+  'once the stock covers today, nothing awaits buying');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d1', $q$select public.get_purchasing_today()$q$) like 'You do not have permission%', 'drivers cannot see purchasing counts');
 
 -- ===========================================================================
@@ -183,19 +170,24 @@ select pg_temp.ok((select value is null from t where name = 'step3')
   'a driver turns off delivery pushes; in-app delivery reminders stay on');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011d1', $q$select public.set_my_push_preference('new_orders', false)$q$) = 'That switch is not available for your role', 'a driver has no new-order switch');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011f1', $q$select public.set_my_push_preference('delivery_reminders', false)$q$) = 'That switch is not available for your role', 'purchasing staff have no delivery switch');
-select pg_temp.ok((select public.wants_push('00000000-0000-0000-0000-0000000011c1', 'order_requires_verification') and not public.wants_push('00000000-0000-0000-0000-0000000011d1', 'upcoming_delivery')
+-- Settings now has one Push notifications switch (prototype, 5 Nov; migration
+-- 202611050007): the hidden per-event choice above no longer blocks a push.
+select pg_temp.ok((select public.wants_push('00000000-0000-0000-0000-0000000011c1', 'order_requires_verification') and public.wants_push('00000000-0000-0000-0000-0000000011d1', 'upcoming_delivery')
   and not public.wants_push('00000000-0000-0000-0000-0000000011d1', 'order_requires_verification') and not public.wants_push('00000000-0000-0000-0000-0000000011f1', 'upcoming_delivery')),
-  'the future sender follows each person''s role and switches');
+  'the future sender follows each person''s role and the one push switch');
 insert into t values ('step5', to_jsonb(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.set_my_notification_preferences(false)$q$)));
 select pg_temp.ok((select value is null from t where name = 'step5')
   and (select push_delivery_reminders and not delivery_reminders from public.notification_preferences where user_id = '00000000-0000-0000-0000-0000000011c1'), 'and turning off in-app reminders leaves the push switch alone');
 
 -- ===========================================================================
--- CU-01: restore is administrator-only; new fields stay optional
+-- Customers (prototype, 5 Nov): administrator and office archive and restore;
+-- purchasing cannot. New fields stay optional.
 -- ===========================================================================
 update public.customers set status = 'archived', archived_at = now() where id = '00000000-0000-0000-0000-00000000c112';
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.set_customer_archived('00000000-0000-0000-0000-00000000c112', false, gen_random_uuid())$q$) = 'Only an administrator can archive or restore customers', 'administrative staff cannot restore a customer (CU-01)');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011f1', $q$select public.set_customer_archived('00000000-0000-0000-0000-00000000c112', false, gen_random_uuid())$q$) = 'Only administrators and administrative staff can archive or restore customers', 'purchasing staff cannot restore a customer');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011a1', $q$select public.set_customer_archived('00000000-0000-0000-0000-00000000c112', false, gen_random_uuid())$q$) is null, 'the administrator restores it');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.set_customer_archived('00000000-0000-0000-0000-00000000c112', true, gen_random_uuid())$q$) is null, 'administrative staff archive it too');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.set_customer_archived('00000000-0000-0000-0000-00000000c112', false, gen_random_uuid())$q$) is null, 'and restore it');
 insert into t values ('step4', to_jsonb(pg_temp.err('00000000-0000-0000-0000-0000000011c1', $q$select public.save_customer('00000000-0000-0000-0000-00000000c112', '{"customer_code":"R11-002","business_name":"Kusina Uno","business_type":"","preferred_delivery_window":""}', gen_random_uuid())$q$)));
 select pg_temp.ok((select value is null from t where name = 'step4')
   and (select business_type is null and preferred_delivery_window is null from public.customers where id = '00000000-0000-0000-0000-00000000c112'), 'a customer saves with both new fields blank');

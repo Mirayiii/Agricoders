@@ -31,7 +31,7 @@ const IDEMPOTENT_RPCS = new Set<string>([
   "start_packing",
   "cancel_packing",
   "set_item_packed",
-  "set_buy_list_bought",
+  "confirm_item_removed",
   // Phase 6
   "reorder_route",
   "assign_delivery_driver",
@@ -44,6 +44,7 @@ const IDEMPOTENT_RPCS = new Set<string>([
   "create_product",
   "update_product",
   "set_product_archived",
+  "delete_product",
   "set_product_price",
   "batch_update_prices",
 ]);

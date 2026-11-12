@@ -11,6 +11,15 @@ export const STOCK_META: Record<InventoryStatus, { label: string; tone: StatusTo
   out_of_stock: { label: "Out of stock", tone: "danger" },
 };
 
+/**
+ * Jac, 8 Nov: a tracked unit with no stock record has unknown stock, not 0.
+ * It shows "Stock unavailable" until someone counts it.
+ */
+export const STOCK_UNAVAILABLE = { label: "Stock unavailable", tone: "neutral" as StatusTone };
+export function stockUnknown(row: { track_stock: boolean; stock_quantity: number | null }): boolean {
+  return row.track_stock && row.stock_quantity === null;
+}
+
 /** One row from get_products_overview(). Prices are null for staff who can't see them. */
 export type ProductOverview = {
   id: string;

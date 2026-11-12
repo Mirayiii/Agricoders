@@ -30,31 +30,42 @@ const ORDERS = [
   { id: "o49", order_number: "ORD-1049", requested_delivery_date: "2026-08-31", status: "confirmed", customers: customer("Kusina ni Maria", "3 Aguinaldo Hwy., Imus, Cavite"),
     order_items: [line("p1", "Red onions", 5, "kg"), line("p2", "Calamansi", 3, "kg"), line("p3", "Cabbage", 0.5, "head")] },
 ];
-// Purchasing staff do not get stock (SI-02, PS-02). Red onions were bought
-// (16 kg) before an order grew to 21 kg, so the line asks for 5 kg more (PU-01).
+// Changed after packing (Jac, 5 Nov): tomatoes went from 8 to 12 kg (unticked),
+// the lettuce note changed (tick kept, "Note changed" shown) and packed
+// calamansi was removed (to be confirmed as taken out). The delivery stays booked.
+const REPACK = {
+  id: "o45", order_number: "ORD-1045", requested_delivery_date: "2026-08-27", status: "for_preparation", packing_version: 2,
+  customers: customer("Casa Verde Restaurant", "12 Mabini St., Poblacion, Makati"),
+  deliveries: [{ id: "d45", status: "scheduled" }],
+  order_items: [
+    line("r1", "Tomatoes", 12, "kg"),
+    { ...line("r2", "Romaine lettuce", 2, "kg", true, "Wrap separately, keep cold"), note_changed_at: "2026-08-27T01:10:00Z" },
+    line("r3", "Cabbage", 4, "head", true),
+  ],
+  order_item_removals: [{ id: "x1", description: "Calamansi", quantity: 2, unit_of_measurement: "kg", removed_at: "2026-08-27T01:10:00Z", confirmed_at: null as string | null }],
+};
+// Figma "Purchasing · To buy": demand, stock on hand, and "Buy X more" when short (prototype, 5 Nov).
 const BUY_LINES = [
-  { product_id: "b3", product_name: "Red onions", unit: "kg", unit_key: "kg", quantity: 21, order_count: 2 },
-  { product_id: "b1", product_name: "Lakatan bananas", unit: "kg", unit_key: "kg", quantity: 45, order_count: 2 },
-  { product_id: "b2", product_name: "Tomatoes", unit: "kg", unit_key: "kg", quantity: 41, order_count: 3 },
-  { product_id: "b4", product_name: "Cabbage", unit: "head", unit_key: "head", quantity: 20, order_count: 1 },
-  { product_id: "b5", product_name: "Calamansi", unit: "kg", unit_key: "kg", quantity: 6, order_count: 2 },
-  { product_id: "b6", product_name: "Romaine lettuce", unit: "kg", unit_key: "kg", quantity: 3, order_count: 1 },
-  { product_id: "b7", product_name: "Carabao mangoes", unit: "crate", unit_key: "crate", quantity: 2, order_count: 1 },
+  { product_id: "b1", product_name: "Lakatan bananas", unit: "kg", unit_key: "kg", quantity: 45, order_count: 2, stock: 60 },
+  { product_id: "b2", product_name: "Tomatoes", unit: "kg", unit_key: "kg", quantity: 41, order_count: 3, stock: 120 },
+  { product_id: "b3", product_name: "Red onions", unit: "kg", unit_key: "kg", quantity: 21, order_count: 2, stock: 18 },
+  { product_id: "b4", product_name: "Cabbage", unit: "head", unit_key: "head", quantity: 20, order_count: 1, stock: 40 },
+  { product_id: "b5", product_name: "Calamansi", unit: "kg", unit_key: "kg", quantity: 6, order_count: 2, stock: 25 },
+  { product_id: "b6", product_name: "Romaine lettuce", unit: "kg", unit_key: "kg", quantity: 3, order_count: 1, stock: 9 },
+  { product_id: "b7", product_name: "Carabao mangoes", unit: "crate", unit_key: "crate", quantity: 2, order_count: 1, stock: 12 },
 ];
-const BOUGHT_START: Record<string, number> = { b3: 16, b4: 20 };
-let bought: Record<string, number> = { ...BOUGHT_START };
 
 function buyList(from: unknown, to: unknown, scale: number) {
   const items = BUY_LINES.map((line) => {
     const quantity = line.quantity * scale;
-    const got = Math.min(bought[line.product_id] ?? 0, quantity);
-    return { ...line, quantity, order_count: line.order_count + (scale - 1), bought: got, remaining: quantity - got, stock: null, short_by: null };
-  }).sort((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0) || a.product_name.localeCompare(b.product_name));
-  return { today: "2026-08-27", from, to, overdue_orders: mode === "late" ? 1 : 0, items, bought_lines: items.filter((i) => i.remaining === 0).length, total_lines: items.length };
+    const short = Math.max(quantity - line.stock, 0);
+    return { ...line, quantity, order_count: line.order_count + (scale - 1), track_stock: true, bought: 0, remaining: short, short_by: short };
+  });
+  return { today: "2026-08-27", from, to, overdue_orders: mode === "late" ? 1 : 0, items, short_lines: items.filter((i) => i.short_by > 0).length, total_lines: items.length };
 }
 
 let mode: Preview = "staff";
-let board = structuredClone(ORDERS);
+let board: Record<string, any>[] = structuredClone(ORDERS);
 
 function fakeQuery(table: string) {
   const builder: Record<string, unknown> = {};
@@ -74,17 +85,16 @@ async function fakeRpc(name: string, args: Record<string, unknown>) {
     const custom = args.p_from !== null;
     return { data: buyList(args.p_from, args.p_to ?? "2026-08-28", custom ? 2 : 1), error: null };
   }
-  if (name === "set_buy_list_bought") {
-    const line = BUY_LINES.find((l) => l.product_id === args.p_product_id);
-    bought = { ...bought, [String(args.p_product_id)]: args.p_bought ? (line?.quantity ?? 0) * (args.p_from !== null ? 2 : 1) : 0 };
-    return { data: { product_id: args.p_product_id, bought: args.p_bought }, error: null };
-  }
   if (name === "set_item_packed" || name === "offline_set_item_packed") {
     if (mode === "ticked_elsewhere") return { data: null, status: 400, error: { message: "Tomato was unticked by Ana Reyes after you ticked it. Check the line and tick it again if it’s packed.", code: "OFCON", details: "", hint: "" } };
     if (mode === "cancelled") return { data: null, error: { message: "This order was cancelled, so it can no longer be packed.", code: "P0001", details: "", hint: "" } };
-    board = board.map((order) => ({ ...order, order_items: order.order_items.map((item) => (item.id === args.p_item_id ? { ...item, preparation_status: args.p_packed ? "completed" : "in_progress" } : item)) }));
-    const order = board.find((o) => o.order_items.some((item) => item.id === args.p_item_id));
-    return { data: { order_id: order?.id, status: "for_preparation", packed_count: order?.order_items.filter((i) => i.preparation_status === "completed").length, item_count: order?.order_items.length }, error: null };
+    board = board.map((order) => ({ ...order, order_items: order.order_items.map((item: Record<string, unknown>) => (item.id === args.p_item_id ? { ...item, preparation_status: args.p_packed ? "completed" : "in_progress", note_changed_at: args.p_packed ? null : item.note_changed_at } : item)) }));
+    const order = board.find((o) => o.order_items.some((item: Record<string, unknown>) => item.id === args.p_item_id));
+    return { data: { order_id: order?.id, status: "for_preparation", packed_count: order?.order_items.filter((i: Record<string, unknown>) => i.preparation_status === "completed").length, item_count: order?.order_items.length }, error: null };
+  }
+  if (name === "confirm_item_removed") {
+    board = board.map((order) => ({ ...order, order_item_removals: order.order_item_removals?.map((r: Record<string, unknown>) => (r.id === args.p_removal_id ? { ...r, confirmed_at: "2026-08-27T01:20:00Z" } : r)) }));
+    return { data: { status: "for_preparation", removal_id: args.p_removal_id }, error: null };
   }
   if (name === "start_packing" || name === "cancel_packing") {
     board = board.map((order) => (order.id === args.p_order_id ? { ...order, status: name === "start_packing" ? "for_preparation" : "confirmed" } : order));
@@ -93,9 +103,10 @@ async function fakeRpc(name: string, args: Record<string, unknown>) {
   return { data: null, error: null };
 }
 
-type Preview = "staff" | "late" | "cancelled" | "offline" | "ticked_elsewhere";
+type Preview = "staff" | "repacking" | "late" | "cancelled" | "offline" | "ticked_elsewhere";
 const PREVIEWS: { key: Preview; label: string }[] = [
   { key: "staff", label: "Purchasing staff" },
+  { key: "repacking", label: "Changed after packing" },
   { key: "late", label: "With a late order" },
   { key: "cancelled", label: "Order cancelled elsewhere" },
   { key: "offline", label: "Packer offline" },
@@ -107,8 +118,7 @@ function install(preview: Preview): Preview {
   client.from = fakeQuery;
   client.rpc = fakeRpc;
   mode = preview;
-  board = structuredClone(ORDERS);
-  bought = { ...BOUGHT_START };
+  board = structuredClone(preview === "repacking" ? [REPACK, ...ORDERS] : ORDERS);
   queryClient.clear();
   // After this render: changing the connection updates other components.
   setTimeout(() => {

@@ -1,10 +1,9 @@
-import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 
-import { Avatar, BottomSheet, Button, Card, Icon, ListGroup, ListRow, Screen, SecondaryButton, useToast } from "@/components";
+import { Avatar, BottomSheet, Button, Card, Icon, ListGroup, ListRow, Screen, useToast } from "@/components";
 import { APP_NAME, BUSINESS_NAME } from "@/constants/app";
 import { ROLE_META } from "@/constants/roles";
 import { colors, radii, spacing, text, typography } from "@/constants/theme";
@@ -24,7 +23,7 @@ export function MoreScreen() {
   const canSwitch = realRole === "administrator";
 
   return (
-    <Screen title="More" contentStyle={styles.content}>
+    <Screen title="More" hideHeader contentStyle={styles.content}>
       <Card style={styles.profileCard}>
         <View style={styles.profile}>
           <Avatar name={name} size={56} />
@@ -51,7 +50,7 @@ export function MoreScreen() {
           <ListRow key={item.key} title={item.title} description={item.description} icon={item.icon} onPress={() => router.push(item.route)} last={index === modules.length - 1} />
         ))}
       </ListGroup>
-      <SecondaryButton label="Sign out" tone="danger" icon={<Ionicons name="log-out-outline" size={20} color={colors.danger} />} onPress={() => (offline ? offline.requestSignOut() : void signOut())} />
+      <Button label="Sign out" type="dangerQuiet" size="lg" icon="log-out" onPress={() => (offline ? offline.requestSignOut() : void signOut())} />
       <Text style={styles.footer}>{APP_NAME} · v{Constants.expoConfig?.version ?? "1.0.0"}</Text>
       {canSwitch ? (
         <BottomSheet visible={choosing} onClose={() => setChoosing(false)}>

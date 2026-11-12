@@ -69,9 +69,14 @@ function SalesInvoiceForm({ caption, initial, requireReason, busy, serverError, 
   const save = () => { if (!blocked) onSave(value, needsReason ? reason.trim() : null); };
   return (
     <>
-      <View>
-        <Text style={styles.title}>Sales Invoice (SI#)</Text>
-        <Text style={styles.caption}>{caption}</Text>
+      <View style={styles.head}>
+        <View style={styles.flex}>
+          <Text style={styles.title}>Sales Invoice (SI#)</Text>
+          <Text style={styles.caption}>{caption}</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={onClose} style={styles.close}>
+          <Icon name="x" size={18} color={colors.textSecondary} />
+        </Pressable>
       </View>
       <FormInput
         label="Sales invoice number"
@@ -157,8 +162,10 @@ export function FlagSheet({ visible, busy, onFlag, onClose }: { visible: boolean
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  head: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  close: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   caption: { ...text.caption, fontFamily: text.captionStrong.fontFamily, color: colors.textSecondary },
-  action: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, paddingHorizontal: 4, borderRadius: radii.sm },
+  action: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, paddingHorizontal: 4, borderRadius: radii.sm },
   actionPressed: { backgroundColor: colors.background },
   actionLabel: { ...text.bodyStrong, color: colors.text },
   danger: { color: colors.danger },

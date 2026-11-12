@@ -38,22 +38,23 @@ export type CustomerProfile = {
   usual_products: UsualProduct[];
 };
 
-/** The fields on the Add and Edit forms (requirement CU-01). */
+/**
+ * The fields on the Add and Edit forms: the ones in Figma and the prototype
+ * (5 Nov). Business type, preferred delivery window and notes are no longer
+ * on the form; values saved earlier are kept on the server.
+ */
 export type CustomerDraft = {
   customer_code: string;
   business_name: string;
   brand_name: string;
-  business_type: string;
-  preferred_delivery_window: string;
   tin: string;
   contact_person: string;
   phone: string;
   email: string;
   delivery_address: string;
-  notes: string;
 };
 
-export const EMPTY_DRAFT: CustomerDraft = { customer_code: "", business_name: "", brand_name: "", business_type: "", preferred_delivery_window: "", tin: "", contact_person: "", phone: "", email: "", delivery_address: "", notes: "" };
+export const EMPTY_DRAFT: CustomerDraft = { customer_code: "", business_name: "", brand_name: "", tin: "", contact_person: "", phone: "", email: "", delivery_address: "" };
 
 export function draftFrom(customer: Partial<Record<keyof CustomerDraft, string | null>> | null): CustomerDraft {
   if (!customer) return EMPTY_DRAFT;
@@ -61,14 +62,11 @@ export function draftFrom(customer: Partial<Record<keyof CustomerDraft, string |
     customer_code: customer.customer_code ?? "",
     business_name: customer.business_name ?? "",
     brand_name: customer.brand_name ?? "",
-    business_type: customer.business_type ?? "",
-    preferred_delivery_window: customer.preferred_delivery_window ?? "",
     tin: customer.tin ?? "",
     contact_person: customer.contact_person ?? "",
     phone: customer.phone ?? "",
     email: customer.email ?? "",
     delivery_address: customer.delivery_address ?? "",
-    notes: customer.notes ?? "",
   };
 }
 
@@ -86,14 +84,11 @@ export function draftPayload(draft: CustomerDraft): Record<keyof CustomerDraft, 
     customer_code: draft.customer_code.trim(),
     business_name: draft.business_name.trim().replace(/\s+/g, " "),
     brand_name: draft.brand_name.trim().replace(/\s+/g, " ") || null,
-    business_type: draft.business_type.trim().replace(/\s+/g, " ") || null,
-    preferred_delivery_window: clean(draft.preferred_delivery_window),
     tin: clean(draft.tin),
     contact_person: clean(draft.contact_person),
     phone: clean(draft.phone),
     email: clean(draft.email),
     delivery_address: clean(draft.delivery_address),
-    notes: clean(draft.notes),
   };
 }
 
@@ -145,5 +140,5 @@ export function historySummary(orderCount: number, lastOrderDate: string | null)
 /** Shown on New order when the customer it was opened for can't take orders. */
 export function presetCustomerNotice(customerId: string | undefined, activeIds: string[]): string | null {
   if (!customerId || activeIds.includes(customerId)) return null;
-  return "That customer is archived or no longer available, so they can’t be picked for a new order. Ask an administrator to restore them, or choose another customer.";
+  return "That customer is archived or no longer available, so they can’t be picked for a new order. Ask an administrator or the office to restore them, or choose another customer.";
 }

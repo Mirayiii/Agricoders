@@ -29,3 +29,8 @@ select case when count(*) = (select count(*) from public.profiles) then 'PASS' e
   from public.profiles where username ~ '^[a-z][a-z0-9._]{2,29}$';
 select case when count(*) = count(distinct lower(username)) then 'PASS' else 'FAIL' end || ' upgrade: usernames unique ignoring case (rico.b@meah.ph and rico.b@gmail.com)' from public.profiles;
 select case when count(*) = (select count(*) from public.profiles) then 'PASS' else 'FAIL' end || ' upgrade: every account is reported for an admin to check' from public.username_migration_report;
+select case when count(*) = 0 then 'PASS' else 'FAIL' end || ' upgrade: existing orders keep their ORD numbers'
+  from upgrade_check.totals s join public.orders o on o.id = s.id where o.order_number !~ '^ORD-';
+select case when (select case when is_called then last_value else 0 end from public.order_number_sequence)
+    >= coalesce((select max(substring(order_number from '([0-9]+)$')::bigint) from public.orders), 0)
+  then 'PASS' else 'FAIL' end || ' upgrade: new DR numbers start above every existing order number';

@@ -1,12 +1,13 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 
 import { APP_NAME } from "@/constants/app";
-import { colors, spacing, typography } from "@/constants/theme";
+import { colors, radii, shadows, spacing, text, typography } from "@/constants/theme";
 import { useUnreadNotifications } from "@/hooks/useUnreadNotifications";
+import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
 
 type AppHeaderProps = {
@@ -25,29 +26,56 @@ export function AppHeader({
   rightAction,
 }: AppHeaderProps) {
   const insets = useSafeAreaInsets();
+  const [rightWidth, setRightWidth] = useState(0);
+
+  if (showBackButton) {
+    // Figma "Header": round white buttons on the page background, title centered between them.
+    // Centered on the screen when the sides match; with several actions on the right,
+    // centered in the space left so the title isn't cut short.
+    const right = spacing.lg + Math.max(ROUND, rightWidth) + spacing.md;
+    const left = rightWidth > ROUND + 8 ? spacing.lg + ROUND + spacing.md : right;
+    return (
+      <View style={[styles.subWrap, { paddingTop: insets.top + 4 }]}>
+        <View style={styles.subBar}>
+          <Text style={[styles.subTitle, { left, right }]} accessibilityRole="header" numberOfLines={1}>
+            {title}
+          </Text>
+          <HeaderButton
+            icon={backIcon === "close" ? "x" : "arrow-left"}
+            label={backIcon === "close" ? "Close" : "Go back"}
+            onPress={onBackPress ?? (() => router.back())}
+          />
+          <View style={styles.subRight} onLayout={(event) => setRightWidth(event.nativeEvent.layout.width)}>
+            {rightAction}
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.wrap, { paddingTop: insets.top }]}>
-      {showBackButton ? (
-        <View style={[styles.bar, styles.subBar]}>
-          <IconButton icon={backIcon} iconSize={24} accessibilityLabel={backIcon === "close" ? "Close" : "Go back"} onPress={onBackPress ?? (() => router.back())} />
-          <Text style={[styles.title, styles.subTitle]} numberOfLines={1}>
-            {title}
-          </Text>
-          {rightAction}
+      <View style={styles.bar}>
+        <View style={styles.mark}>
+          <Ionicons name="car-outline" size={18} color={colors.primary} />
         </View>
-      ) : (
-        <View style={styles.bar}>
-          <View style={styles.mark}>
-            <Ionicons name="car-outline" size={18} color={colors.primary} />
-          </View>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-          {rightAction ?? <NotificationBell />}
-        </View>
-      )}
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+        {rightAction ?? <NotificationBell />}
+      </View>
     </View>
+  );
+}
+
+const ROUND = 40;
+
+/** Figma "Button/arrow-left": 40px white circle with the raised shadow. */
+function HeaderButton({ icon, label, onPress }: { icon: "arrow-left" | "x"; label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={4} onPress={onPress} style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}>
+      <Icon name={icon} size={20} color={colors.text} />
+    </Pressable>
   );
 }
 
@@ -79,9 +107,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
+  subWrap: {
+    backgroundColor: colors.background,
+    paddingBottom: spacing.sm,
+  },
   subBar: {
-    paddingHorizontal: spacing.sm,
-    gap: spacing.xs,
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  subRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  round: {
+    width: ROUND,
+    height: ROUND,
+    borderRadius: radii.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    ...shadows.raised,
+  },
+  roundPressed: {
+    backgroundColor: colors.primarySoft,
   },
   mark: {
     width: 32,
@@ -97,7 +149,10 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   subTitle: {
-    letterSpacing: 0,
+    ...text.title,
+    position: "absolute",
+    textAlign: "center",
+    color: colors.text,
   },
   dot: {
     position: "absolute",

@@ -1,57 +1,42 @@
 import type { ProfileRole } from "@/types/auth";
 
 /**
- * Notification preferences on Settings (requirement AS-03, Jac 4 Nov).
- * - Delivery reminders (in the app) turn the "Upcoming order" and "Upcoming
- *   delivery" reminders in Notifications on or off. Independent of push.
- * - Push switches use the app's existing notification events, and each role
- *   only gets switches for events it already receives (AS-02). A driver's
- *   delivery reminders are only ever about their own stops. Choices are saved
- *   per person now; phones start getting pushes once push is set up (D-A1).
- * The server keeps the same list (push_categories_for_role) and refuses others.
+ * Settings switches (MEAH-Prototype 2.html; Figma "Settings" 25:2115).
+ * - Push notifications: one switch for all of this person's push alerts.
+ * - Delivery reminders: the "Upcoming order" and "Upcoming delivery"
+ *   reminders in Notifications. A driver's are only about their own stops.
+ * - Low-stock alerts: when a product reaches its alert level.
+ * Each role only sees the switches the prototype gives it. The server keeps
+ * the same list (settings_switches_for_role) and refuses others.
+ *
+ * Push sending and low-stock alerts aren't built yet, so those switches show
+ * "Not available yet", stay disabled and keep the saved choice (Jac, 5 Nov,
+ * approved exception to Figma). The server refuses changes to them too
+ * (setting_available).
  */
-export type PushCategory = "new_orders" | "flagged_orders" | "delivery_reminders" | "ready_to_buy";
-export type NotificationSetting =
-  | { key: "delivery_reminders"; kind: "in_app"; title: string; description: string }
-  | { key: `push_${PushCategory}`; kind: "push"; category: PushCategory; title: string; description: string };
+export type SettingKey = "push" | "delivery" | "stock";
+export type SettingSwitch = { key: SettingKey; title: string; description: string; available: boolean };
 
-export const PUSH_CATEGORIES_BY_ROLE: Record<ProfileRole, readonly PushCategory[]> = {
-  administrator: ["new_orders", "flagged_orders", "delivery_reminders"],
-  administrative_staff: ["new_orders", "flagged_orders", "delivery_reminders"],
-  fulfillment_staff: ["ready_to_buy"],
-  delivery_staff: ["delivery_reminders"],
+/** Switches whose feature works today. Keep in step with setting_available() on the server. */
+export const AVAILABLE_SETTINGS: readonly SettingKey[] = ["delivery"];
+
+export const SETTINGS_BY_ROLE: Record<ProfileRole, readonly SettingKey[]> = {
+  administrator: ["push", "delivery", "stock"],
+  administrative_staff: ["push", "delivery"],
+  fulfillment_staff: ["push", "stock"],
+  delivery_staff: ["push", "delivery"],
 };
 
-const REMINDER_ROLES: readonly ProfileRole[] = ["administrator", "administrative_staff", "delivery_staff"];
+const TEXT: Record<SettingKey, [string, string]> = {
+  push: ["Push notifications", "Alerts on this phone"],
+  delivery: ["Delivery reminders", "Day before and morning of"],
+  stock: ["Low-stock alerts", "When stock reaches its alert level"],
+};
 
-function pushRow(category: PushCategory, role: ProfileRole): NotificationSetting {
-  const text: Record<PushCategory, [string, string]> = {
-    new_orders: ["Push: new orders to verify", "When an order is saved and waits for verification"],
-    flagged_orders: ["Push: flagged orders", "When an order is flagged as needing attention"],
-    delivery_reminders: [
-      "Push: delivery reminders",
-      role === "delivery_staff" ? "The day before and on the day of your own stops" : "The day before and on the day of each order and delivery",
-    ],
-    ready_to_buy: ["Push: ready to buy", "When an order is confirmed and added to To buy"],
-  };
-  return { key: `push_${category}`, kind: "push", category, title: text[category][0], description: text[category][1] };
-}
+/** The column each switch is saved in. */
+export const SETTING_COLUMN = { push: "push_enabled", delivery: "delivery_reminders", stock: "low_stock_alerts" } as const;
 
-export function notificationSettings(role: ProfileRole | null | undefined): NotificationSetting[] {
+export function notificationSettings(role: ProfileRole | null | undefined): SettingSwitch[] {
   if (!role) return [];
-  const rows: NotificationSetting[] = [];
-  if (REMINDER_ROLES.includes(role)) {
-    rows.push({
-      key: "delivery_reminders",
-      kind: "in_app",
-      title: "Delivery reminders in the app",
-      description: role === "delivery_staff" ? "In Notifications, the day before and on the day of your deliveries" : "In Notifications, the day before and on the day of each order and delivery",
-    });
-  }
-  return [...rows, ...PUSH_CATEGORIES_BY_ROLE[role].map((category) => pushRow(category, role))];
-}
-
-/** The role-to-switch list, as shown in the PR description. */
-export function pushSwitchTitles(role: ProfileRole): string[] {
-  return PUSH_CATEGORIES_BY_ROLE[role].map((category) => pushRow(category, role).title);
+  return SETTINGS_BY_ROLE[role].map((key) => ({ key, title: TEXT[key][0], description: TEXT[key][1], available: AVAILABLE_SETTINGS.includes(key) }));
 }

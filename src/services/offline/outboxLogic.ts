@@ -155,6 +155,9 @@ export function payloadFor(item: OutboxAction): Record<string, unknown> {
     offline.seen_prices = item.seen.prices ?? [];
     if (item.acceptCurrentPrices) offline.accept_current_prices = true;
   }
+  // Packing ticks and "delivered" carry the order's packing version, so a
+  // change made after the screen was loaded is refused instead of overwritten.
+  if (item.seen.packing_version != null) offline.packing_version = item.seen.packing_version;
   return { ...item.args, p_client_request_id: item.id, p_offline: offline };
 }
 

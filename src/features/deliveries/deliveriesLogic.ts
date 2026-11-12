@@ -19,6 +19,9 @@ export type StopRow = {
   orders: {
     order_number: string;
     updated_at?: string;
+    /** The order's own status: "for_preparation" while it is being repacked after an edit. */
+    status?: string;
+    packing_version?: number;
     delivery_time_start?: string | null;
     delivery_time_end?: string | null;
     customers: { business_name: string; brand_name?: string | null; contact_person: string | null; phone: string | null; delivery_address: string | null } | null;
@@ -215,27 +218,24 @@ export function peso(value: number): string {
 }
 
 /**
- * Requirement DE-03: the delivery receipt PDF can be downloaded once the order
- * is confirmed, by the administrator, administrative staff and the assigned
- * delivery staff. Drivers only ever see their own stops' orders, and the
- * server checks the assignment again.
+ * The delivery receipt exists from Confirmed onwards, with no Issue step
+ * (MEAH-Prototype 2.html; Jac, 5 Nov). Its DR number is the order number.
+ * Who can open it is checked by the server.
  */
 export const RECEIPT_STATUSES: readonly string[] = ["confirmed", "for_preparation", "for_delivery", "completed"];
-export const canIssueReceipt = (role: string | null | undefined) =>
-  role === "administrator" || role === "administrative_staff" || role === "delivery_staff";
 
 /**
- * Requirement DE-04 (Jac, 4 Nov): a stop needs an assigned driver before
- * anyone can complete it. Once assigned, that driver or the administrator can
- * complete it. Administrative staff schedule and dispatch but do not complete.
- * The server checks the same on every route, offline sync included.
+ * Mark delivered (MEAH-Prototype 2.html, 5 Nov; replaces DE-04): the
+ * administrator and administrative staff for any stop, delivery staff for
+ * their own. No driver has to be assigned first. The server checks the same
+ * on every route, offline sync included.
  */
 export function canCompleteDelivery(role: string | null | undefined, assignedDriverId: string | null | undefined, myId: string | null | undefined): boolean {
-  if (!assignedDriverId) return false;
-  if (role === "administrator") return true;
+  if (role === "administrator" || role === "administrative_staff") return true;
   return role === "delivery_staff" && Boolean(myId) && assignedDriverId === myId;
 }
 
+/** "0042"; numbers past 9999 keep every digit, like the server's dr_label. */
 export const receiptNumber = (receipt: Pick<Receipt, "dr_number">) => String(receipt.dr_number).padStart(4, "0");
 
 /** "10/14/26", as on MEAH's paper receipt. */
@@ -313,4 +313,9 @@ ${note ? `<p class="note">${e(note)}</p>` : ""}
 <div class="sign"><div><div style="text-align:left">${e(receipt.issued_by_name)}</div><div class="line">Issued By</div></div><div><div>&nbsp;</div><div class="line">Received By</div></div></div>
 <p class="ref">${e(receipt.order_number)}${si} · Issued ${e(receiptDate(receipt.issued_at))}</p>`;
   return pdfPage(receiptFileName(receipt), body);
+}
+
+/** The order was changed after packing and is back in Packing: the stop stays booked but can't be marked delivered yet. */
+export function stopIsRepacking(stop: { status: string; orders?: { status?: string } | null }): boolean {
+  return (stop.status === "scheduled" || stop.status === "for_delivery") && stop.orders?.status === "for_preparation";
 }

@@ -8,9 +8,12 @@ type SegmentedControlProps<T extends string> = {
   onChange: (value: T) => void;
   /** Smaller text and padding, for four short options (Figma To buy horizons). */
   compact?: boolean;
+  /** Figma "Products & stock" tabs: the selected segment is white with brand-green text. */
+  tone?: "brand" | "light";
 };
 
-export function SegmentedControl<T extends string>({ options, value, onChange, compact = false }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ options, value, onChange, compact = false, tone = "brand" }: SegmentedControlProps<T>) {
+  const light = tone === "light";
   return (
     <View style={styles.track} accessibilityRole="tablist">
       {options.map((option) => {
@@ -21,9 +24,9 @@ export function SegmentedControl<T extends string>({ options, value, onChange, c
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             onPress={() => onChange(option.key)}
-            style={[styles.segment, compact && styles.segmentCompact, selected && styles.selected]}
+            style={[styles.segment, compact && styles.segmentCompact, selected && (light ? styles.selectedLight : styles.selected)]}
           >
-            <Text style={[styles.label, compact && styles.labelCompact, selected && styles.labelSelected]} numberOfLines={1}>{option.label}</Text>
+            <Text style={[styles.label, compact && styles.labelCompact, selected && (light ? styles.labelSelectedLight : styles.labelSelected)]} numberOfLines={1}>{option.label}</Text>
           </Pressable>
         );
       })}
@@ -66,5 +69,11 @@ const styles = StyleSheet.create({
   },
   labelSelected: {
     color: colors.onBrand,
+  },
+  selectedLight: {
+    backgroundColor: colors.surface,
+  },
+  labelSelectedLight: {
+    color: colors.primary,
   },
 });

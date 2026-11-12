@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Icon } from "@/components/Icon";
 import { Logo } from "@/components/Logo";
-import { colors, radii, text } from "@/constants/theme";
+import { colors, radii, shadows, text } from "@/constants/theme";
 
 /** Home header from Figma: logo, "MEAH Management" and the bell with an unread dot. */
 export function HomeHeader({ unread }: { unread: number }) {
@@ -27,8 +27,8 @@ export function HomeHeader({ unread }: { unread: number }) {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
-  title: { ...text.title, color: colors.text, flex: 1 },
-  bell: { width: 40, height: 40, borderRadius: radii.full, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  title: { ...text.title, color: colors.text, flex: 1, textAlign: "center" },
+  bell: { width: 40, height: 40, borderRadius: radii.full, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", ...shadows.raised },
   pressed: { backgroundColor: colors.surfacePressed },
   dot: { position: "absolute", top: 9, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.badge, borderWidth: 1, borderColor: colors.surface },
 });

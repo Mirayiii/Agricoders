@@ -1,17 +1,20 @@
-import { useMemo, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ScrollViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 
-import { Avatar, BottomSheet, Button, DatePickerField, EmptyState, ErrorState, FormInput, Icon, LoadingState, ProductRow, SearchBar, ToggleRow, useToast } from "@/components";
+import { Avatar, Banner, BottomSheet, Button, DatePickerField, EmptyState, ErrorState, FormInput, Icon, LoadingState, Pagination, ProductRow, SearchBar, ToggleRow, useToast } from "@/components";
 import { colors, radii, shadows, spacing, text } from "@/constants/theme";
-import { useAuth } from "@/features/auth";
+import { useAuth, usePermission } from "@/features/auth";
+import { PERMISSIONS } from "@/constants/permissions";
 import { DataError, queryClient, useRequestId } from "@/services/data";
 import { NotQueuedError, PriceChangedError, type PriceChange } from "@/services/offline";
 import { PriceReview } from "@/features/sync/PriceReview";
 import { formatMoney, fullDateLabel, plural, toISODate } from "@/utils/format";
 import { presetCustomerNotice } from "@/features/customers/customersLogic";
 import { customerName } from "@/utils/customer";
+import { PAGE_SIZE, pageSlice } from "@/utils/pagination";
+import { usePage } from "@/utils/usePage";
 import { DiscountForm } from "../detail/DiscountForm";
 import { discountLabel, salesInvoiceProblem } from "../orderMoney";
 import {
@@ -47,8 +50,10 @@ import {
   seenPrices,
   stepQuantity,
   stockTag,
+  outOfStockProblem,
   stockWarning,
 } from "./newOrderLogic";
+import { clearNewOrderDraft, keepNewOrderDraft, readNewOrderDraft } from "./newOrderDraft";
 import { ManageSourcesSheet, ManageTimesSheet, TimeBox, TimeSheet, UnitSheet } from "./sheets";
 
 type Step = 1 | 2 | 3;
@@ -63,7 +68,11 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
  * the stock on hand, or when out of stock, with a warning; nothing is reserved
  * or deducted; every new order is saved For verification.
  */
-type Initial = { step: Step; customer: CustomerOption | null; lines: DraftLine[]; sourceId: string | null; notes: string; notice?: string | null };
+type Initial = {
+  step: Step; customer: CustomerOption | null; lines: DraftLine[]; sourceId: string | null; notes: string; notice?: string | null;
+  // Restored from a kept draft (prototype).
+  date?: string | null; time?: DeliveryTime; salesInvoice?: string; needsChecking?: boolean; checkingNote?: string; discount?: DraftDiscount | null;
+};
 
 /** Loads what the form needs, then starts it from a customer or a copied order. */
 export function NewOrderScreen({ customerId, duplicateOrderId }: { customerId?: string; duplicateOrderId?: string }) {
@@ -108,6 +117,24 @@ export function NewOrderScreen({ customerId, duplicateOrderId }: { customerId?: 
     if (copy.customers && !catalogQuery.data.customers.some((item) => item.id === copy.customers?.id)) {
       initial = { ...initial, step: 1, customer: null, notice: `${customerName(copy.customers)} is archived, so they can’t be picked for a new order. Choose a customer for these items, or restore them on the Customers screen first.` };
     }
+  } else if (!customerId && readNewOrderDraft()) {
+    // Prototype: New order reopens the order that was closed without saving.
+    const kept = readNewOrderDraft()!;
+    const products = new Set(catalogQuery.data.products.map((item) => item.id));
+    initial = {
+      step: kept.step,
+      customer: catalogQuery.data.customers.find((item) => item.id === kept.customerId) ?? null,
+      lines: (kept.lines as DraftLine[]).filter((line) => products.has(line.productId)),
+      sourceId: kept.sourceId,
+      notes: kept.notes,
+      date: kept.date,
+      time: kept.time as DeliveryTime,
+      salesInvoice: kept.salesInvoice,
+      needsChecking: kept.needsChecking,
+      checkingNote: kept.checkingNote,
+      discount: kept.discount as DraftDiscount | null,
+    };
+    if (!initial.customer) initial = { ...initial, step: 1 };
   } else if (customerId) {
     const preset = catalogQuery.data.customers.find((item) => item.id === customerId);
     if (preset) initial = { ...initial, step: 2, customer: preset };
@@ -126,7 +153,8 @@ function WizardHeader({ step, title, closing, onBack }: { step: Step; title: str
     <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
       <View style={styles.headerRow}>
         <Pressable accessibilityRole="button" accessibilityLabel={closing ? "Close" : "Back"} hitSlop={4} onPress={onBack} style={({ pressed }) => [styles.round, pressed && styles.pressed]}>
-          <Icon name={closing ? "x" : "arrow-left"} size={20} color={colors.text} />
+          {/* Figma shows the back arrow on every step; on step 1 it closes the wizard. */}
+          <Icon name="arrow-left" size={20} color={colors.text} />
         </Pressable>
         <Text style={styles.headerTitle} accessibilityRole="header">{title}</Text>
         <View style={styles.stepPill}><Text style={styles.stepPillText}>{step} of 3</Text></View>
@@ -142,22 +170,35 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const isAdministrator = useAuth().profile?.role === "administrator";
+  // Prototype: anyone who takes orders may type a different line price.
+  const canChangePrice = usePermission(PERMISSIONS.manageOrders);
   const isAgain = Boolean(duplicateOrderId);
 
   const [step, setStep] = useState<Step>(initial.step);
   const [customer, setCustomer] = useState<CustomerOption | null>(initial.customer);
   const [lines, setLines] = useState<DraftLine[]>(initial.lines);
-  const [date, setDate] = useState<string | null>(null);
-  const [time, setTime] = useState<DeliveryTime>({ start: null, end: null, slotId: null });
+  const [date, setDate] = useState<string | null>(initial.date ?? null);
+  const [time, setTime] = useState<DeliveryTime>(initial.time ?? { start: null, end: null, slotId: null });
   const [sourceId, setSourceId] = useState<string | null>(initial.sourceId);
   const [notes, setNotes] = useState(initial.notes);
-  const [salesInvoice, setSalesInvoice] = useState("");
-  const [needsChecking, setNeedsChecking] = useState(false);
-  const [checkingNote, setCheckingNote] = useState("");
-  const [discount, setDiscount] = useState<DraftDiscount | null>(null);
+  const [salesInvoice, setSalesInvoice] = useState(initial.salesInvoice ?? "");
+  const [needsChecking, setNeedsChecking] = useState(initial.needsChecking ?? false);
+  const [checkingNote, setCheckingNote] = useState(initial.checkingNote ?? "");
+  const [discount, setDiscount] = useState<DraftDiscount | null>(initial.discount ?? null);
+  const saved = useRef(false);
+
+  // Keep the draft while the form changes, so closing it loses nothing (prototype).
+  useEffect(() => {
+    if (isAgain || saved.current) return;
+    keepNewOrderDraft({ step, customerId: customer?.id ?? null, lines, date, time, sourceId, notes, salesInvoice, needsChecking, checkingNote, discount });
+  }, [isAgain, step, customer, lines, date, time, sourceId, notes, salesInvoice, needsChecking, checkingNote, discount]);
   const [discountOpen, setDiscountOpen] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
   const [productQuery, setProductQuery] = useState("");
+  // Prototype: 15 products per page; a new search starts at page 1.
+  const [productPage, setProductPage] = usePage(productQuery.trim());
+  const scroller = useRef<ScrollViewInstance>(null);
+  const goToProducts = (next: number) => { setProductPage(next); scroller.current?.scrollTo({ y: 0, animated: false }); };
   const [unitFor, setUnitFor] = useState<string | null>(null);
   const [timeFor, setTimeFor] = useState<"start" | "end" | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -176,9 +217,11 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
   const removeTime = useRemoveDeliveryTime();
 
   const catalog = useMemo(
-    () => buildCatalog(data.products, data.listPrices, customer ? customerPrices.data ?? [] : [], data.availability),
+    () => buildCatalog(data.products, data.listPrices, customer ? customerPrices.data ?? [] : [], data.availability, undefined, new Set(data.outOfStockSkus ?? [])),
     [data, customer, customerPrices.data],
   );
+  const productTerm = productQuery.trim().toLowerCase();
+  const matchingProducts = catalog.filter((item) => item.name.toLowerCase().includes(productTerm));
   // Kept fresh after an administrator edits the lists.
   const liveLists = useOrderLists().data ?? lists;
   const sources = liveLists.sources;
@@ -189,7 +232,7 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
   const warning = stockWarning(priced);
   const timeProblem = deliveryTimeProblem(time);
   const invoiceProblem = salesInvoiceProblem(salesInvoice);
-  const priceIssue = priced.map(priceProblem).find(Boolean) ?? null;
+  const priceIssue = outOfStockProblem(priced) ?? priced.map(priceProblem).find(Boolean) ?? null;
   const discountTooBig = discount?.type === "fixed" && discount.value > money.subtotal;
 
   const missing =
@@ -232,6 +275,8 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
       },
       {
         onSuccess: (result) => {
+          saved.current = true;
+          clearNewOrderDraft();
           request.reset();
           setPriceReview(null);
           if (result.queued) {
@@ -270,7 +315,7 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
       <WizardHeader step={step} title={isAgain ? "Order again" : "New order"} closing={step === 1 || (isAgain && step === 3)} onBack={back} />
 
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scroller} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {step === 1 ? (
             <>
               {initial.notice && !customer ? (
@@ -298,7 +343,7 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
                         <Text style={styles.customerName}>{customerName(item)}</Text>
                         <Text style={styles.caption}>{item.customer_code}{item.contact_person ? ` · ${item.contact_person}` : ""}</Text>
                       </View>
-                      {selected ? <Icon name="check-circle" size={22} color={colors.primary} /> : null}
+                      {selected ? <Icon name="check-circle" size={22} color={colors.primary} /> : <Icon name="chevron-right" size={20} color={colors.textMuted} />}
                     </Pressable>
                   );
                 })}
@@ -306,17 +351,21 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
             </>
           ) : step === 2 ? (
             <>
-              <View>
-                <Text style={styles.question}>What do they need?</Text>
-                <Text style={styles.caption}>For {customerName(customer)}</Text>
-              </View>
+              {/* Figma and prototype: step 2 is headed by the customer's name. */}
+              <Text style={styles.question} accessibilityRole="header">{customerName(customer)}</Text>
               <SearchBar value={productQuery} onChangeText={setProductQuery} placeholder="Search products" />
+              {data.stockLookupFailed ? (
+                <View style={styles.stockNotice}>
+                  <Banner tone="warning" icon="alert-circle">Stock unavailable: we couldn’t check stock just now. Products can still be added, and stock is checked again when you save.</Banner>
+                  <Button label="Retry" type="secondary" size="md" icon="refresh" onPress={() => void queryClient.invalidateQueries({ queryKey: newOrderKeys.catalog() })} />
+                </View>
+              ) : null}
               {catalog.length === 0 ? <EmptyState icon="leaf-outline" title="No products yet" description="Add products and prices before creating orders." /> : null}
-              {catalog
-                .filter((item) => item.name.toLowerCase().includes(productQuery.trim().toLowerCase()))
+              {pageSlice(matchingProducts, productPage, PAGE_SIZE)
                 .map((item) => {
                   const line = lines.find((entry) => entry.productId === item.id);
-                  const unit = item.units.find((option) => option.key === line?.unitKey) ?? item.units[0];
+                  // Not added yet: offer the first unit that can be ordered (Jac, 8 Nov: out of stock can't be added).
+                  const unit = item.units.find((option) => option.key === line?.unitKey) ?? item.units.find((option) => !option.outOfStock) ?? item.units[0];
                   const pricedLine = priced.find((entry) => entry.item.id === item.id);
                   const tag = unit ? stockTag(unit) : undefined;
                   return (
@@ -325,8 +374,8 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
                         name={item.name}
                         priceLabel={unit ? `${formatMoney(unit.price)} / ${unit.unit}` : "No price yet"}
                         stock={tag}
-                        // Provisional (D-S1): out-of-stock products can still be added, with a warning.
-                        state={!unit ? "unavailable" : line ? "added" : "default"}
+                        // Prototype rule (Jac, 8 Nov): out of stock stays visible but can't be added; low stock can.
+                        state={line ? "added" : !unit || unit.outOfStock ? "unavailable" : "default"}
                         onAdd={() => updateLine(item.id, { unitKey: unit?.key ?? "base", quantityText: "1" })}
                         quantity={line?.quantityText}
                         onQuantityChange={(value) => setLines((current) => current.map((entry) => (entry.productId === item.id ? { ...entry, quantityText: cleanQuantityInput(value) } : entry)))}
@@ -335,18 +384,23 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
                         unit={unit?.unit}
                         onUnitPress={item.units.length > 1 ? () => setUnitFor(item.id) : undefined}
                         unitPrice={line?.priceText ?? (unit ? unit.price.toFixed(2) : "")}
-                        // Only an administrator may change a price (special price, with a reason).
-                        onUnitPriceChange={isAdministrator ? (value) => updateLine(item.id, { priceText: value.replace(/[^0-9.]/g, "") }) : undefined}
+                        // Order-takers may change a line price; the reason is optional.
+                        onUnitPriceChange={canChangePrice ? (value) => updateLine(item.id, { priceText: value.replace(/[^0-9.]/g, "") }) : undefined}
                       />
-                      {line && pricedLine?.overStock ? (
+                      {line && pricedLine?.outOfStock ? (
+                        <View style={styles.rowWarning}>
+                          <Icon name="alert-circle" size={14} color={colors.danger} />
+                          <Text style={[styles.rowWarningText, styles.rowErrorText]}>Out of stock. Remove it to continue.</Text>
+                        </View>
+                      ) : line && pricedLine?.overStock ? (
                         <View style={styles.rowWarning}>
                           <Icon name="alert-circle" size={14} color={colors.warning} />
-                          <Text style={styles.rowWarningText}>{unit?.stockStatus === "out_of_stock" ? "Out of stock. It can still be ordered." : "More than the stock on hand. It can still be ordered."}</Text>
+                          <Text style={styles.rowWarningText}>More than the stock on hand. It can still be ordered.</Text>
                         </View>
                       ) : null}
                       {pricedLine?.special ? (
                         <FormInput
-                          label={`Reason for the new price (${formatMoney(pricedLine.unit.price)} → ${formatMoney(pricedLine.unitPrice)})`}
+                          label={`Reason for the new price, optional (${formatMoney(pricedLine.unit.price)} → ${formatMoney(pricedLine.unitPrice)})`}
                           value={line?.priceReason ?? ""}
                           onChangeText={(value) => updateLine(item.id, { priceReason: value })}
                           placeholder="e.g. Agreed with customer"
@@ -357,6 +411,7 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
                     </View>
                   );
                 })}
+              <Pagination page={productPage} total={matchingProducts.length} pageSize={PAGE_SIZE} onChange={goToProducts} label="products" />
             </>
           ) : (
             <>
@@ -470,7 +525,7 @@ function NewOrderForm({ data, lists, initial, duplicateOrderId }: { data: Catalo
                   <Text style={styles.totalLabel}>Estimated total</Text>
                   <Text style={styles.totalValue}>{formatMoney(money.total)}</Text>
                 </View>
-                <Text style={styles.hint}>The server prices the order again when it is saved. New orders are saved For verification.</Text>
+                <Text style={styles.hint}>The server prices the order again when it is saved. {needsChecking ? "Flagged orders are saved For verification." : "The order is confirmed and sent to Purchasing when you save it."}</Text>
               </View>
               {saveError ? (
                 <View style={[styles.notice, styles.errorNotice]} accessibilityRole="alert">
@@ -583,6 +638,7 @@ function SourcePicker({ sources, value, open, onToggle, onChange }: { sources: O
 }
 
 const styles = StyleSheet.create({
+  stockNotice: { gap: spacing.sm },
   page: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
@@ -604,6 +660,7 @@ const styles = StyleSheet.create({
   productBlock: { gap: 6 },
   rowWarning: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4 },
   rowWarningText: { ...text.caption, color: colors.warning, flex: 1 },
+  rowErrorText: { color: colors.danger },
   field: { gap: 8 },
   fieldHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   fieldLabel: { ...text.captionStrong, color: colors.textSecondary },
@@ -617,7 +674,8 @@ const styles = StyleSheet.create({
   slotLabel: { ...text.captionStrong, color: colors.textSecondary },
   slotLabelSelected: { color: colors.primary },
   errorText: { ...text.caption, color: colors.danger },
-  dropdownWrap: { gap: 4 },
+  // Figma: the source picker is half width, lined up with "Start with".
+  dropdownWrap: { gap: 4, width: "48%", minWidth: 170 },
   dropdown: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   dropdownSet: { borderColor: colors.primaryMuted },
   dropdownText: { ...text.body, flex: 1, color: colors.text },

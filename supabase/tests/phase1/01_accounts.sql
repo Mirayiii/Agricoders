@@ -219,7 +219,7 @@ select pg_temp.ok(not exists (
   where n.nspname = 'public' and p.prosecdef
     and p.prorettype <> 'trigger'::regtype
     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))
-    and p.prosrc !~ '(has_app_role|is_active_administrator|can_read_order|is_active_account)\('
+    and p.prosrc !~ '(has_app_role|is_active_administrator|can_read_order|is_active_account|can_manage_products|can_manage_prices)\('
     and p.proname not in ('has_app_role', 'is_active_administrator', 'is_active_account', 'can_read_order')
 ), 'every app-callable security-definer function checks the account gate');
 rollback;

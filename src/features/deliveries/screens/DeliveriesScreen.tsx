@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from "react-native";
+import { PAGE_SIZE, pageSlice } from "@/utils/pagination";
+import { usePage } from "@/utils/usePage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 
-import { Avatar, BottomSheet, Button, Card, EmptyState, ErrorState, FormInput, Icon, LoadingState, SegmentedControl, StaleNotice, StatusBadge, useToast, type IconName } from "@/components";
+import { Avatar, BottomSheet, Button, Card, EmptyState, ErrorState, FormInput, Icon, LoadingState, Pagination, SegmentedControl, StaleNotice, StatusBadge, useToast, type IconName } from "@/components";
 import { PERMISSIONS } from "@/constants/permissions";
 import { colors, radii, shadows, spacing, text } from "@/constants/theme";
 import { useAuth, usePermission } from "@/features/auth";
@@ -13,7 +15,7 @@ import { DataError } from "@/services/data";
 import { callPhone, openDirections } from "@/utils/links";
 import { customerName } from "@/utils/customer";
 import { QueuedDeliveryNote, useDeliveryQueued, useMarkDelivered } from "../shared";
-import { DONE_WINDOW_DAYS, useAssignDriver, useDeliveryBoard, useDrivers, useReorderRoute, useUnscheduledCount, type DriverOption } from "../deliveriesData";
+import { DONE_WINDOW_DAYS, useAssignDriver, useDeliveryBoard, useDrivers, useReorderRoute, type DriverOption } from "../deliveriesData";
 import {
   buildRoutes,
   canCompleteDelivery,
@@ -27,6 +29,7 @@ import {
   upcomingLabel,
   type Route,
   type StopRow,
+  stopIsRepacking,
 } from "../deliveriesLogic";
 
 type Tab = "today" | "upcoming" | "done";
@@ -56,7 +59,6 @@ export function DeliveriesScreen() {
   const serverToday = useManilaToday();
   const today = serverToday.data ?? manilaToday();
   const board = useDeliveryBoard();
-  const unscheduled = useUnscheduledCount(canAssign);
   const drivers = useDrivers(today, canAssign);
   const reorder = useReorderRoute();
   const assign = useAssignDriver();
@@ -67,7 +69,7 @@ export function DeliveriesScreen() {
   useFocusEffect(useCallback(() => { void refetch(); }, [refetch]));
   async function refresh() {
     setRefreshing(true);
-    await Promise.all([refetch(), unscheduled.refetch(), canAssign ? drivers.refetch() : null]);
+    await Promise.all([refetch(), canAssign ? drivers.refetch() : null]);
     setRefreshing(false);
   }
 
@@ -121,10 +123,16 @@ export function DeliveriesScreen() {
   }
 
   const list = tab === "today" ? tabs.today : tab === "upcoming" ? tabs.upcoming : tabs.done;
+  // Prototype: Done deliveries show 15 per page; Today and Upcoming stay whole so routes read in order.
+  const [page, setPage] = usePage(tab);
+  const scroller = useRef<ScrollViewInstance>(null);
+  const goTo = (next: number) => { setPage(next); scroller.current?.scrollTo({ y: 0, animated: false }); };
+  const shown = tab === "done" ? pageSlice(list, page, PAGE_SIZE) : list;
 
   return (
     <View style={styles.page}>
       <ScrollView
+        ref={scroller}
         contentContainerStyle={[styles.content, { paddingTop: insets.top + 8 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.primary} colors={[colors.primary]} />}
@@ -134,13 +142,6 @@ export function DeliveriesScreen() {
           value={tab}
           onChange={(next) => { setEditing(null); setTab(next); }}
         />
-        {canAssign && unscheduled.data ? (
-          <Pressable accessibilityRole="button" onPress={() => router.push("/deliveries/new")} style={({ pressed }) => [styles.pending, pressed && styles.pressed]}>
-            <Icon name="calendar" size={18} color={colors.warning} />
-            <Text style={styles.pendingText}>{unscheduled.data} packed {unscheduled.data === 1 ? "order is" : "orders are"} waiting for a delivery schedule</Text>
-            <Icon name="chevron-right" size={18} color={colors.warning} />
-          </Pressable>
-        ) : null}
         <StaleNotice query={board} />
 
         {board.isPending ? <LoadingState message="Loading deliveries..." /> : !board.data ? (
@@ -174,7 +175,7 @@ export function DeliveriesScreen() {
               </>
             ) : null}
 
-            {list.length ? list.map((stop) => tab === "done" ? (
+            {list.length ? shown.map((stop) => tab === "done" ? (
               <DeliveredCard key={stop.id} stop={stop} today={today} />
             ) : (
               <DeliveryCard
@@ -188,7 +189,7 @@ export function DeliveriesScreen() {
                 onAssign={() => setAssigning(stop)}
                 onDeliver={() => setConfirming(stop)}
               />
-            )) : (
+            )).concat(tab === "done" ? [<Pagination key="pages" page={page} total={list.length} pageSize={PAGE_SIZE} onChange={goTo} label="deliveries" />] : []) : (
               <Card>
                 <EmptyState
                   icon="car-outline"
@@ -309,11 +310,12 @@ function DeliveryCard({ stop, when, overlap, late, canAssign, canComplete, onAss
   const customer = stop.orders?.customers;
   const assigned = Boolean(stop.assigned_driver_id);
   const queued = useDeliveryQueued(stop.id);
+  const repacking = stopIsRepacking(stop);
   return (
     <View style={[styles.card, (overlap || late) && styles.cardWarn]}>
       <View style={styles.cardTop}>
         <TimePill label={when} tone={overlap || late ? "warning" : when.endsWith("Not specified") ? "muted" : "brand"} />
-        <StatusBadge label={stop.status === "for_delivery" ? "Out for delivery" : "To deliver"} tone="success" />
+        <StatusBadge label={repacking ? "Repacking" : stop.status === "for_delivery" ? "Out for delivery" : "To deliver"} tone={repacking ? "warning" : "success"} />
       </View>
       {overlap ? <Text style={styles.warnNote}>Time overlaps another stop on this route</Text> : null}
       <Pressable accessibilityRole="button" accessibilityHint="Opens the delivery" onPress={() => router.push({ pathname: "/deliveries/[id]", params: { id: stop.id } })} style={({ pressed }) => [styles.cardBody, pressed && styles.pressed]}>
@@ -334,7 +336,8 @@ function DeliveryCard({ stop, when, overlap, late, canAssign, canComplete, onAss
       </View>
       <Text style={styles.small}>{itemsText(stop)}</Text>
       <QueuedDeliveryNote deliveryId={stop.id} />
-      {canComplete ? (
+      {repacking ? <Text style={styles.warnNote}>The order was changed and is being repacked. Mark it delivered once packing is finished.</Text> : null}
+      {canComplete && !repacking ? (
         <View style={styles.actions}>
           <SquareButton icon="phone" label="Call customer" disabled={!customer?.phone} onPress={() => void callPhone(customer?.phone ?? "")} />
           <SquareButton icon="navigation" label="Directions" disabled={!customer?.delivery_address} onPress={() => void openDirections(customer?.delivery_address ?? "")} />
@@ -455,8 +458,6 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.75 },
   disabled: { opacity: 0.4 },
   flip: { transform: [{ rotate: "180deg" }] },
-  pending: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.warningSoft, borderRadius: radii.md, padding: spacing.md },
-  pendingText: { ...text.captionStrong, flex: 1, color: colors.warning },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs },
   section: { ...text.heading, color: colors.text },
   sectionHint: { ...text.caption, color: colors.textMuted },

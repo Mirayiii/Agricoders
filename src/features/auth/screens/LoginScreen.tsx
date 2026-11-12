@@ -49,7 +49,7 @@ export function LoginScreen() {
   return (
     <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 64, paddingBottom: insets.bottom + spacing.xxl }]}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + (shownAlert ? 96 : 124), paddingBottom: insets.bottom + spacing.xxl }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -67,7 +67,7 @@ export function LoginScreen() {
             value={username}
             onChangeText={(value) => { setUsername(value); if (fieldErrors.username) setFieldErrors((e) => ({ ...e, username: undefined })); }}
             error={fieldErrors.username}
-            placeholder="Enter your username"
+            placeholder="Username"
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="username"
@@ -83,7 +83,7 @@ export function LoginScreen() {
             value={password}
             onChangeText={(value) => { setPassword(value); if (fieldErrors.password) setFieldErrors((e) => ({ ...e, password: undefined })); }}
             error={fieldErrors.password}
-            placeholder="Enter your password"
+            placeholder="Password"
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
@@ -99,7 +99,7 @@ export function LoginScreen() {
         <Button label="Sign in" size="lg" onPress={handleSignIn} loading={loading} />
 
         <View style={styles.footer}>
-          <Text style={styles.help}>Accounts, reactivation and forgotten passwords are handled by your administrator. Contact them for help.</Text>
+          <Text style={styles.help}>Forgot your password? Contact your administrator.</Text>
           <Text style={styles.company}>MEAH Agricultural Products Trading</Text>
         </View>
       </ScrollView>

@@ -83,7 +83,7 @@ export function SetPasswordScreen() {
             icon="key"
             value={next}
             onChangeText={setNext}
-            placeholder="Enter a new password"
+            placeholder="New password"
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
@@ -109,7 +109,9 @@ export function SetPasswordScreen() {
 
         <PasswordRulesList password={next} sameAsOld={sameAsCurrent} differentLabel={policyUpgrade ? "Not your current password" : "Not the temporary password"} />
 
-        <Button label="Save and continue" size="lg" onPress={save} loading={saving} disabled={!canSave} />
+        <View style={styles.footer}>
+          <Button label="Save and continue" size="lg" onPress={save} loading={saving} disabled={!canSave} />
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -120,10 +122,12 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1, paddingHorizontal: spacing.xxl, gap: spacing.xl },
   back: {
     width: 40, height: 40, borderRadius: radii.full, backgroundColor: colors.surface,
-    alignItems: "center", justifyContent: "center", ...shadows.card,
+    alignItems: "center", justifyContent: "center", marginBottom: 56, ...shadows.raised,
   },
   header: { gap: spacing.sm },
   title: { ...text.display, color: colors.text },
   subtitle: { ...text.body, color: colors.textSecondary },
   fields: { gap: 14 },
+  // Figma: the button sits at the bottom of the screen.
+  footer: { marginTop: "auto", paddingTop: spacing.xl },
 });

@@ -78,7 +78,6 @@ function RootNavigator() {
     <Stack.Screen name="pricing/index" />
     <Stack.Screen name="reports/index" />
     <Stack.Screen name="notifications" />
-    <Stack.Screen name="change-password" />
     <Stack.Screen name="inventory/index" />
   </Stack></RolePreviewFrame>;
 }

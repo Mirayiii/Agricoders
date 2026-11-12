@@ -64,17 +64,17 @@ test("Home counts come from the listed rows", () => {
   assert.equal(counts.deliveriesToday, 3, "cancelled deliveries are not counted");
 });
 
-test("delivery completion and receipts follow DE-03 and DE-04", async () => {
-  const { RECEIPT_STATUSES, canCompleteDelivery, canIssueReceipt } = await import("@/features/deliveries/deliveriesLogic");
-  // DE-04 (Jac, 4 Nov): a driver must be assigned first, then that driver or the administrator.
-  assert.equal(canCompleteDelivery("administrator", null, "a"), false, "no driver assigned: not even the administrator");
-  assert.equal(canCompleteDelivery("delivery_staff", null, "d1"), false);
+test("delivery completion and receipts follow the prototype and DE-03", async () => {
+  const { RECEIPT_STATUSES, canCompleteDelivery } = await import("@/features/deliveries/deliveriesLogic");
+  // Prototype (5 Nov, replaces DE-04): administrator and office for any stop, drivers for their own; no driver needed.
+  assert.equal(canCompleteDelivery("administrator", null, "a"), true, "no driver assigned: the administrator can");
+  assert.equal(canCompleteDelivery("administrative_staff", null, "c1"), true, "and so can the office");
+  assert.equal(canCompleteDelivery("delivery_staff", null, "d1"), false, "a driver only completes their own stop");
   assert.equal(canCompleteDelivery("administrator", "d1", "a"), true);
   assert.equal(canCompleteDelivery("delivery_staff", "d1", "d1"), true);
   assert.equal(canCompleteDelivery("delivery_staff", "d2", "d1"), false, "only their own stop");
-  assert.equal(canCompleteDelivery("administrative_staff", "d1", "c1"), false, "office staff dispatch but don't complete");
+  assert.equal(canCompleteDelivery("administrative_staff", "d1", "c1"), true);
   assert.equal(canCompleteDelivery("fulfillment_staff", "d1", "f1"), false);
   assert.ok(RECEIPT_STATUSES.includes("confirmed"), "the receipt is available from Confirmed");
   assert.ok(!RECEIPT_STATUSES.includes("for_verification"));
-  assert.deepEqual(["administrator", "administrative_staff", "delivery_staff", "fulfillment_staff"].map(canIssueReceipt), [true, true, true, false]);
 });

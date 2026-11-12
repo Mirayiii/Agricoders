@@ -43,7 +43,7 @@ export function signInMessage(response: SignInResponse): AuthMessage | null {
       return null;
     case "invalid":
     case "invalid_request":
-      return { title: "Incorrect username or password.", message: "Check your details and try again. 5 failed attempts locks the account for 15 minutes." };
+      return { title: "Incorrect username or password", message: "Check your details and try again. 5 failed attempts locks the account for 15 minutes." };
     case "locked": {
       const minutes = minutesUntil(response.locked_until);
       return { title: "Account locked", message: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or ask your administrator to unlock it.` };

@@ -267,6 +267,34 @@ const peso = (value: number) => `₱${Number(value).toLocaleString("en-PH", { mi
 const longDate = (value: string) => { const [y, m, d] = parts(value); return `${MONTHS[m - 1]} ${d}, ${y}`; };
 
 /**
+ * Prototype "Share Statement (Viber / SMS)": a plain-text proof of billing to paste into a chat.
+ * Jac (8 Nov): no 1% withholding and no BIR 2307 note for now, so the amount due is the total billed.
+ */
+export function statementText(statement: Statement, businessName: string, periodLabel?: string): string {
+  const billed = statement.orders.reduce((sum, order) => sum + Number(order.total), 0);
+  const rule = "--------------------------------";
+  const period = periodLabel ?? `${longDate(statement.start)} – ${longDate(statement.end)}`;
+  const lines = [
+    `${businessName.toUpperCase()} — PROOF OF BILLING`,
+    `Customer: ${statement.customer.name}`,
+    `Billing Period: ${period}`,
+    rule,
+    `Total Amount Due: ${peso(billed)}`,
+    rule,
+    "DELIVERIES BREAKDOWN:",
+  ];
+  if (!statement.orders.length) lines.push("No orders in this period.");
+  for (const order of statement.orders) {
+    const status = ORDER_STATUS_META[order.status]?.label ?? order.status;
+    lines.push(`${longDate(order.delivery_date)} (${drLabel(order.dr_number) ?? order.order_number}) - ${peso(order.total)} [${status}]`);
+    for (const line of order.lines) lines.push(`  • ${line.product_name} (${Number(line.quantity)} ${line.unit}): ${peso(line.amount)}`);
+    if (Number(order.discount)) lines.push(`  • Discount: −${peso(order.discount)}`);
+  }
+  lines.push(rule, `Exact amount to collect: ${peso(billed)}. Thank you!`);
+  return lines.join("\n");
+}
+
+/**
  * Customer statement as a printable page: every order in
  * the period that isn't cancelled, itemized, with discounts and the total.
  */

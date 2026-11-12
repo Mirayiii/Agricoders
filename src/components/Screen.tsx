@@ -24,6 +24,8 @@ type ScreenProps = {
   backIcon?: "chevron-back" | "close";
   onBackPress?: () => void;
   headerRight?: ReactNode;
+  // Tab screens with no header in Figma (e.g. More) start straight with their content.
+  hideHeader?: boolean;
   // Rendered below the header, outside the scroll area (e.g. wizard progress).
   subHeader?: ReactNode;
   // Sticky action bar pinned to the bottom of stack screens.
@@ -42,6 +44,7 @@ export function Screen({
   backIcon,
   onBackPress,
   headerRight,
+  hideHeader = false,
   subHeader,
   footer,
   contentStyle,
@@ -71,13 +74,13 @@ export function Screen({
 
   return (
     <View style={styles.screen}>
-      <AppHeader
+      {hideHeader ? <View style={{ height: insets.top + spacing.sm }} /> : <AppHeader
         title={title}
         showBackButton={showBackButton}
         backIcon={backIcon}
         onBackPress={onBackPress ?? (() => router.back())}
         rightAction={headerRight}
-      />
+      />}
       {subHeader}
       {keyboardAware ? (
         <KeyboardAvoidingView

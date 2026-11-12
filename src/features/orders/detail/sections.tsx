@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button, Icon, type IconName, StatusBadge } from "@/components";
-import { colors, radii, spacing, text } from "@/constants/theme";
+import { colors, radii, shadows, spacing, text } from "@/constants/theme";
 import type { OrderStatus } from "@/types/orders";
 import { formatMoney, formatQuantity, plural } from "@/utils/format";
 import { ORDER_FLOW, ORDER_FLOW_LABELS, ORDER_STATUS_META } from "../status";
@@ -17,7 +17,7 @@ export function DetailHeader({ title, onBack, onMore }: { title: string; onBack:
     <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
       <RoundButton icon="arrow-left" label="Go back" onPress={onBack} />
       <Text style={styles.headerTitle} accessibilityRole="header" numberOfLines={1}>{title}</Text>
-      {onMore ? <RoundButton icon="more" label="More actions" onPress={onMore} /> : <View style={styles.roundButton} />}
+      {onMore ? <RoundButton icon="more" label="More actions" onPress={onMore} /> : <View style={styles.roundSpacer} />}
     </View>
   );
 }
@@ -245,8 +245,9 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, backgroundColor: colors.background },
-  headerTitle: { ...text.title, flex: 1, color: colors.text },
-  roundButton: { width: 40, height: 40, borderRadius: radii.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
+  headerTitle: { ...text.title, flex: 1, textAlign: "center", color: colors.text },
+  roundButton: { width: 40, height: 40, borderRadius: radii.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, ...shadows.raised },
+  roundSpacer: { width: 40, height: 40 },
   summary: { gap: 4 },
   summaryStatus: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingBottom: 4 },
   customerName: { ...text.display, color: colors.text },
@@ -310,16 +311,15 @@ const styles = StyleSheet.create({
 });
 
 /** Figma "Delivery receipt" card, under the Sales Invoice card. */
-export function DeliveryReceiptCard({ label, onOpen, onIssue, busy }: { label: string | null; onOpen?: () => void; onIssue?: () => void; busy?: boolean }) {
+export function DeliveryReceiptCard({ label, onOpen, busy }: { label: string | null; onOpen?: () => void; busy?: boolean }) {
   return (
     <View style={[styles.card, styles.invoice]}>
       <View style={styles.iconTile}><Icon name="file-text" size={20} color={colors.textSecondary} /></View>
       <View style={styles.flex}>
         <Text style={styles.label}>Delivery receipt</Text>
-        <Text style={[styles.body, !label && styles.placeholder]}>{label ? `DR No. ${label} · PDF` : busy ? "Issuing…" : "Not issued yet"}</Text>
+        <Text style={[styles.body, !label && styles.placeholder]}>{label ? `DR No. ${label} · PDF` : busy ? "Loading…" : "Ready once the order is confirmed"}</Text>
       </View>
       {label && onOpen ? <TextLink icon="eye" label="View" accessibilityLabel={`View delivery receipt ${label}`} onPress={onOpen} /> : null}
-      {!label && onIssue ? <TextLink icon="plus" label="Issue" accessibilityLabel="Issue delivery receipt" onPress={onIssue} /> : null}
     </View>
   );
 }

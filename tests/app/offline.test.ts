@@ -295,3 +295,11 @@ test("packing ticks saved offline show on the board until they sync; the last on
   const shown = withQueuedTicks(board, [tick("t1", "l1", true), tick("t2", "l2", true), tick("t3", "l2", false), tick("t4", "l1", false, "rejected")]);
   assert.deepEqual(shown[0].order_items.map((line) => line.preparation_status), ["completed", "in_progress"]);
 });
+
+test("ticks and delivered send the packing version the screen was loaded with", () => {
+  const withVersion = queue({ a: action("v", DRIVER, { seen: { scheduled_date: "2026-11-04", packing_version: 3 } }) })[0];
+  assert.equal((payloadFor(withVersion).p_offline as { packing_version?: number }).packing_version, 3);
+  // Without one the server refuses with an "update the app" message; nothing is filled in here.
+  const without = queue({ a: action("w") })[0];
+  assert.equal("packing_version" in (payloadFor(without).p_offline as object), false);
+});

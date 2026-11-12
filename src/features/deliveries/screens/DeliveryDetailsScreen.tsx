@@ -4,7 +4,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
 
-import { Card, Chip, DateStrip, EmptyState, FormInput, LoadingState, PrimaryButton, Screen, SecondaryButton, StatusBadge, useToast } from "@/components";
+import { Banner, Card, Chip, DateStrip, EmptyState, FormInput, LoadingState, PrimaryButton, Screen, SecondaryButton, StatusBadge, useToast } from "@/components";
 import { PERMISSIONS } from "@/constants/permissions";
 import { colors, radii, shadows, spacing, typography } from "@/constants/theme";
 import { useAuth, usePermission } from "@/features/auth";
@@ -13,7 +13,7 @@ import { supabase } from "@/services/supabase";
 import { dayLabel, formatMoney, formatQuantity, formatTime, plural, relativeTime } from "@/utils/format";
 import { callPhone, openDirections } from "@/utils/links";
 import { customerName } from "@/utils/customer";
-import { canCompleteDelivery } from "../deliveriesLogic";
+import { canCompleteDelivery, stopIsRepacking } from "../deliveriesLogic";
 import { DELIVERY_STATUS_META, DeliverSheet, QueuedDeliveryNote, useDeliveryQueued, useMarkDelivered, type DeliveryStatus } from "../shared";
 
 type Driver = { id: string; full_name: string | null; email: string };
@@ -27,10 +27,10 @@ type Delivery = {
   received_by: string | null;
   completed_at: string | null;
   profiles: Driver | null;
-  orders: { order_number: string; updated_at?: string; order_total?: number | null; customers: { business_name: string; brand_name?: string | null; contact_person: string | null; phone: string | null; delivery_address: string | null } | null; order_items: { id: string; quantity: number; unit_of_measurement: string; products: { product_name: string } | null }[] } | null;
+  orders: { order_number: string; updated_at?: string; status?: string; packing_version?: number; order_total?: number | null; customers: { business_name: string; brand_name?: string | null; contact_person: string | null; phone: string | null; delivery_address: string | null } | null; order_items: { id: string; quantity: number; unit_of_measurement: string; products: { product_name: string } | null }[] } | null;
 };
 
-const DETAIL_COLUMNS = "id,order_id,scheduled_date,scheduled_time,status,notes,received_by,completed_at,profiles!deliveries_assigned_driver_id_fkey(id,full_name,email),orders(order_number,updated_at,order_total,customers(business_name,brand_name,contact_person,phone,delivery_address),order_items(id,quantity,unit_of_measurement,products(product_name)))";
+const DETAIL_COLUMNS = "id,order_id,scheduled_date,scheduled_time,status,notes,received_by,completed_at,profiles!deliveries_assigned_driver_id_fkey(id,full_name,email),orders(order_number,updated_at,status,packing_version,order_total,customers(business_name,brand_name,contact_person,phone,delivery_address),order_items(id,quantity,unit_of_measurement,products(product_name)))";
 
 const driverName = (driver: Driver | null) => driver?.full_name ?? driver?.email ?? "Unassigned";
 
@@ -86,6 +86,7 @@ export function DeliveryDetailsScreen({ deliveryId }: { deliveryId?: string }) {
   const customer = current.orders?.customers;
   const meta = DELIVERY_STATUS_META[current.status];
   const isOpen = current.status === "scheduled" || current.status === "for_delivery";
+  const repacking = stopIsRepacking(current);
   const items = current.orders?.order_items ?? [];
 
   function startEditing() {
@@ -150,12 +151,12 @@ export function DeliveryDetailsScreen({ deliveryId }: { deliveryId?: string }) {
       title="Delivery"
       showBackButton
       keyboardAware
-      footer={isOpen && !editing && !queued && canCompleteDelivery(me?.role, current.profiles?.id, me?.id) ? <PrimaryButton label="Mark delivered" size="lg" icon={<Ionicons name="checkmark-done" size={20} color={colors.surface} />} onPress={() => setConfirming(true)} style={styles.flex} /> : undefined}
+      footer={isOpen && !repacking && !editing && !queued && canCompleteDelivery(me?.role, current.profiles?.id, me?.id) ? <PrimaryButton label="Mark delivered" size="lg" icon={<Ionicons name="checkmark-done" size={20} color={colors.surface} />} onPress={() => setConfirming(true)} style={styles.flex} /> : undefined}
       contentStyle={styles.content}
     >
       <View style={styles.summary}>
         <View style={styles.summaryTop}>
-          <StatusBadge label={meta.label} tone={meta.tone} />
+          <StatusBadge label={repacking ? "Repacking" : meta.label} tone={repacking ? "warning" : meta.tone} />
           <Text style={styles.muted}>{dayLabel(current.scheduled_date)}{time12 ? `, ${time12}` : ""}</Text>
         </View>
         <Text style={styles.customerName}>{customerName(customer) ?? "Customer"}</Text>
@@ -163,6 +164,7 @@ export function DeliveryDetailsScreen({ deliveryId }: { deliveryId?: string }) {
       </View>
 
       <QueuedDeliveryNote deliveryId={current.id} />
+      {repacking ? <Banner tone="warning" icon="alert-circle">The order was changed after it was packed and is being repacked. This delivery stays booked; mark it delivered once packing is finished.</Banner> : null}
 
       <View style={styles.quick}>
         <QuickAction icon="call-outline" label="Call" disabled={!customer?.phone} onPress={() => void callPhone(customer?.phone ?? "")} />

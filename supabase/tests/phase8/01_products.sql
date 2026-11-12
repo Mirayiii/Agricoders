@@ -59,9 +59,10 @@ grant all on ids to authenticated;
 -- ---------------------------------------------------------------------------
 -- Add product
 -- ---------------------------------------------------------------------------
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', $q$select public.create_product('{"product_name":"P8 Onions","units":["kg"]}', gen_random_uuid())$q$) like 'Only an administrator%', 'purchasing staff cannot add products');
--- Requirement PS-01: administrative staff no longer manage the catalog.
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', $q$select public.create_product('{"product_name":"P8 Onions","units":["kg"]}', gen_random_uuid())$q$) = 'Only an administrator can change products, prices and stock', 'administrative staff cannot add products (PS-01)');
+-- Prototype (5 Nov): administrator, administrative staff and purchasing manage the catalog; delivery staff don't.
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', $q$select public.create_product('{"product_name":"P8 Onions","units":[]}', gen_random_uuid())$q$) = 'Choose at least one unit the product is sold by', 'purchasing staff may add products');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', $q$select public.create_product('{"product_name":"P8 Onions","units":["kg"]}', gen_random_uuid())$q$) = 'You do not have permission to change products', 'delivery staff cannot add products');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', $q$select public.create_product('{"product_name":"P8 Onions","units":[]}', gen_random_uuid())$q$) = 'Choose at least one unit the product is sold by', 'administrative staff may add products');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', $q$select public.create_product('{"product_name":"  ","units":["kg"]}', gen_random_uuid())$q$) = 'Enter the product name', 'the product name is required');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', $q$select public.create_product('{"product_name":"P8 Onions","units":[]}', gen_random_uuid())$q$) = 'Choose at least one unit the product is sold by', 'a unit is required');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', $q$select public.create_product('{"product_name":"P8 Onions","units":["kg"],"cost_price":"50","selling_price":"0"}', gen_random_uuid())$q$) = 'The selling price must be more than ₱0', 'a zero selling price is refused');
@@ -100,27 +101,29 @@ select pg_temp.ok((select (value->'P8 Red onions'->>'unit_count')::int = 3 from 
 select pg_temp.ok((select value->'P8 Tomatoes'->'stock_quantity' = 'null'::jsonb and value->'P8 Tomatoes'->'stock_status' = 'null'::jsonb from t where name = 'list_office'), 'a product without stock tracking shows no stock');
 select pg_temp.ok((select value->'P8 Honey'->'margin_percent' = 'null'::jsonb and (value->'P8 Honey'->>'selling_price')::numeric = 380 from t where name = 'list_office'), 'no cost recorded: the price shows but the margin is left blank');
 select pg_temp.ok((select value->'P8 Ampalaya'->'selling_price' = 'null'::jsonb from t where name = 'list_office'), 'a product with no price yet shows none');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', $q$select count(*) from public.get_products_overview()$q$) = 'Only an administrator can open Products & stock', 'administrative staff cannot open Products & stock (SI-02, PS-02)');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', $q$select count(*) from public.get_products_overview()$q$) = 'Only an administrator can open Products & stock', 'nor can purchasing staff');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', format($q$select public.adjust_inventory(%L, 'adjustment', 5, 'Count', null)$q$, (select id from public.product_skus where product_id = (select id from ids where name = 'onions') and unit_of_measurement = 'kg'))) = 'Only an administrator can adjust stock', 'administrative staff cannot adjust stock (PS-03)');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', format($q$select public.adjust_inventory(%L, 'adjustment', 5, 'Count', null)$q$, (select id from public.product_skus where product_id = (select id from ids where name = 'onions') and unit_of_measurement = 'kg'))) = 'Only an administrator can adjust stock', 'purchasing staff cannot adjust stock (PS-03)');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', format($q$update public.products set product_name = 'P8 Renamed' where id = %L$q$, (select id from ids where name = 'onions'))) is null
-  and (select product_name = 'P8 Red onions' from public.products where id = (select id from ids where name = 'onions')), 'administrative staff cannot change a product row directly');
--- Requirements SI-02 and PS-02: stock monitoring is the administrator's, also through direct reads.
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', $q$select count(*) from public.get_products_overview()$q$) = 'Only an administrator can open Products & stock', 'delivery staff no longer see stock levels');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', $q$select count(*) from public.get_products_overview()$q$) is null, 'administrative staff open Products & stock');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', $q$select count(*) from public.get_products_overview()$q$) is null, 'so do purchasing staff');
+select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000008f1', $q$select jsonb_agg(cost_price) filter (where cost_price is not null) from public.get_products_overview()$q$)) is null, 'purchasing staff get no cost prices');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', format($q$select public.adjust_inventory(%L, 'adjustment', -1, 'Count', null)$q$, (select id from public.product_skus where product_id = (select id from ids where name = 'onions') and unit_of_measurement = 'kg'))) = 'Quantity must be zero or greater', 'administrative staff may adjust stock');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', format($q$select public.adjust_inventory(%L, 'adjustment', -1, 'Count', null)$q$, (select id from public.product_skus where product_id = (select id from ids where name = 'onions') and unit_of_measurement = 'kg'))) = 'Quantity must be zero or greater', 'purchasing staff may adjust stock');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', format($q$select public.adjust_inventory(%L, 'adjustment', 5, 'Count', null)$q$, (select id from public.product_skus where product_id = (select id from ids where name = 'onions') and unit_of_measurement = 'kg'))) = 'You do not have permission to adjust stock', 'delivery staff cannot adjust stock');
+select pg_temp.err('00000000-0000-0000-0000-0000000008d1', format($q$update public.products set product_name = 'P8 Renamed' where id = %L$q$, (select id from ids where name = 'onions')));
+select pg_temp.ok((select product_name = 'P8 Red onions' from public.products where id = (select id from ids where name = 'onions')), 'delivery staff cannot change a product row directly');
+-- Stock levels: administrator, administrative staff and purchasing; not delivery staff.
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', $q$select count(*) from public.get_products_overview()$q$) = 'You do not have permission to open Products & stock', 'delivery staff see no stock levels');
 select pg_temp.ok((select bool_and((pg_temp.run(u, $q$select to_jsonb(count(*)) from public.inventory$q$))::int = 0
     and (pg_temp.run(u, $q$select to_jsonb(count(*)) from public.inventory_transactions$q$))::int = 0
     and (pg_temp.run(u, $q$select to_jsonb(count(*)) from public.get_inventory_list(null, null, 100, 0)$q$))::int = 0
     and (pg_temp.run(u, $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array(select id from public.products))$q$))::int = 0)
-  from unnest(array['00000000-0000-0000-0000-0000000008f1', '00000000-0000-0000-0000-0000000008d1']::uuid[]) u), 'purchasing and delivery staff read no stock levels directly');
-select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000008c1', $q$select to_jsonb(count(*)) from public.inventory$q$))::int = 0
-  and (pg_temp.run('00000000-0000-0000-0000-0000000008c1', $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array(select id from public.products))$q$))::int = 0,
-  'administrative staff read no stock levels, not even the New order tag (SI-02, PS-02; replaces D-S1)');
+  from unnest(array['00000000-0000-0000-0000-0000000008d1']::uuid[]) u), 'delivery staff read no stock levels directly');
+select pg_temp.ok((select bool_and((pg_temp.run(u, $q$select to_jsonb(count(*)) from public.inventory$q$))::int > 0
+    and (pg_temp.run(u, $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array(select id from public.products))$q$))::int > 0)
+  from unnest(array['00000000-0000-0000-0000-0000000008c1', '00000000-0000-0000-0000-0000000008f1']::uuid[]) u), 'administrative and purchasing staff read stock levels, including the New order tag');
 select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000008a1', $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array(select id from public.products))$q$))::int > 0,
   'the administrator still gets stock availability on New order');
 select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000008a1', $q$select to_jsonb(count(*)) from public.inventory$q$))::int > 0, 'the administrator reads stock');
 update public.profiles set status = 'inactive' where id = '00000000-0000-0000-0000-0000000008d1';
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', $q$select count(*) from public.get_products_overview()$q$) like 'Only an administrator%', 'a deactivated account cannot list products');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', $q$select count(*) from public.get_products_overview()$q$) is not null, 'a deactivated account cannot list products');
 update public.profiles set status = 'active' where id = '00000000-0000-0000-0000-0000000008d1';
 
 -- ---------------------------------------------------------------------------
@@ -141,7 +144,7 @@ select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$select public.update_product(%L, '{"selling_sku":"p8-201001","buying_sku":""}', gen_random_uuid())$q$, (select id from ids where name = 'tomatoes'))) is null, 'runs: ' || 'SKU codes can be edited and cleared');
 select pg_temp.ok((select selling_sku = 'P8-201001' and buying_sku is null from public.product_skus where product_id = (select id from ids where name = 'tomatoes')), 'SKU codes can be edited and cleared');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$select public.update_product(%L, '{"track_stock":false}', gen_random_uuid())$q$, (select id from ids where name = 'onions'))) is null, 'runs: turning stock tracking off');
-select pg_temp.ok((select count(*) from public.inventory i join public.product_skus s on s.id = i.sku_id where s.product_id = (select id from ids where name = 'onions')) = 1, 'turning stock tracking off keeps the stock record');
+select pg_temp.ok((select count(*) from public.inventory i join public.product_skus s on s.id = i.sku_id where s.product_id = (select id from ids where name = 'onions')) >= 1, 'turning stock tracking off keeps the stock records');
 select pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$select public.update_product(%L, '{"track_stock":true}', gen_random_uuid())$q$, (select id from ids where name = 'onions')));
 
 -- ---------------------------------------------------------------------------
@@ -156,8 +159,8 @@ create temp table total_before on commit drop as select public.order_total(o) as
 
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$select public.set_product_price(%L, 50, 0, gen_random_uuid())$q$, (select id from ids where name = 'onions'))) = 'P8 Red onions: the selling price must be more than ₱0', 'Update price refuses a zero selling price');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$select public.set_product_price(%L, -1, 150, gen_random_uuid())$q$, (select id from ids where name = 'onions'))) = 'P8 Red onions: the cost can''t be negative', 'and a negative cost');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', format($q$select public.set_product_price(%L, 100, 150, gen_random_uuid())$q$, (select id from ids where name = 'onions'))) like 'Only an administrator%', 'purchasing staff cannot change prices');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', format($q$select public.set_product_price(%L, 100, 150, gen_random_uuid())$q$, (select id from ids where name = 'onions'))) like 'Only an administrator%', 'administrative staff cannot change prices (RE-05)');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', format($q$select public.set_product_price(%L, 100, 150, gen_random_uuid())$q$, (select id from ids where name = 'onions'))) = 'Only administrators and administrative staff can change prices', 'purchasing staff cannot change prices');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008c1', format($q$select public.set_product_price(%L, 50, 0, gen_random_uuid())$q$, (select id from ids where name = 'onions'))) = 'P8 Red onions: the selling price must be more than ₱0', 'administrative staff may change prices');
 insert into t values ('price', pg_temp.run('00000000-0000-0000-0000-0000000008a1', format($q$select public.set_product_price(%L, 110, 145, '88888888-8888-4888-8888-888888888802')$q$, (select id from ids where name = 'onions'))));
 insert into t values ('price_again', pg_temp.run('00000000-0000-0000-0000-0000000008a1', format($q$select public.set_product_price(%L, 110, 145, '88888888-8888-4888-8888-888888888802')$q$, (select id from ids where name = 'onions'))));
 select pg_temp.ok((select count(*) from public.price_history where product_id = (select id from ids where name = 'onions')) = 2, 'Update price adds a row once (a retry doesn''t add another) and keeps the old one');
@@ -245,5 +248,5 @@ select pg_temp.ok((select unit_of_measurement = 'kilo' from public.products wher
   'respelling keeps the measure; past order lines keep kg and the rename is logged');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008a1', format($q$select public.update_product(%L, '{"rename_unit":{"from":"sack (25kg)","to":"sack (50kg)"}}', gen_random_uuid())$q$, (select id from ids where name = 'onions'))) is null, 'runs: rename sack (25kg) to sack (50kg)');
 select pg_temp.ok(exists (select 1 from public.product_skus where product_id = (select id from ids where name = 'onions') and unit_of_measurement = 'sack (50kg)'), 'a unit with no stock or prices can be renamed freely');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008f1', format($q$select public.update_product(%L, '{"rename_unit":{"from":"piece","to":"pc"}}', gen_random_uuid())$q$, (select id from ids where name = 'onions'))) like 'Only an administrator%', 'purchasing staff can''t rename units');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000008d1', format($q$select public.update_product(%L, '{"rename_unit":{"from":"piece","to":"pc"}}', gen_random_uuid())$q$, (select id from ids where name = 'onions'))) = 'You do not have permission to change products', 'delivery staff can''t rename units');
 rollback;

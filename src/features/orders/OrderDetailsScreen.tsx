@@ -7,8 +7,8 @@ import { Button, Card, EmptyState, ErrorState, Icon, type IconName, LoadingState
 import { PERMISSIONS } from "@/constants/permissions";
 import { colors, radii, spacing, text } from "@/constants/theme";
 import { useAuth, usePermission } from "@/features/auth";
-import { useIssueReceipt, useReceipt } from "@/features/deliveries/deliveriesData";
-import { RECEIPT_STATUSES, canCompleteDelivery, canIssueReceipt as roleCanIssueReceipt, receiptNumber } from "@/features/deliveries/deliveriesLogic";
+import { useReceipt } from "@/features/deliveries/deliveriesData";
+import { RECEIPT_STATUSES, canCompleteDelivery, receiptNumber } from "@/features/deliveries/deliveriesLogic";
 import { DeliverSheet, useMarkDelivered } from "@/features/deliveries/shared";
 import { useRequestId } from "@/services/data";
 import { NotQueuedError, useIsOnline, useQueuedChange } from "@/services/offline";
@@ -52,6 +52,7 @@ function activityIcon(action: string): IconName {
   if (action === "sales_invoice_set") return "receipt";
   if (action === "requires_attention" || action === "attention_cleared") return "flag";
   if (action === "order_edited") return "edit";
+  if (action === "removed_item_confirmed") return "package";
   if (action === "cancelled") return "x-circle";
   if (action.startsWith("delivery")) return "car";
   if (action.startsWith("preparation")) return "package";
@@ -74,10 +75,8 @@ export function OrderDetailsScreen({ orderId }: { orderId?: string }) {
     viewDeliveries: usePermission(PERMISSIONS.viewDeliveries),
   };
   const isAdministrator = role === "administrator";
-  const canIssueReceipt = roleCanIssueReceipt(role);
   const detail = useOrderDetail(orderId);
   const receipt = useReceipt(orderId ?? "");
-  const issueReceipt = useIssueReceipt();
   const { refetch } = detail;
   const [sheet, setSheet] = useState<Sheet>(null);
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -123,7 +122,7 @@ export function OrderDetailsScreen({ orderId }: { orderId?: string }) {
 
   const order: OrderDetail = detail.data;
   const delivery = order.deliveries?.[0];
-  // Requirement DE-04: a driver must be assigned; then that driver or the administrator.
+  // Administrator and office for any stop, a driver for their own (no driver needed).
   const canComplete = canCompleteDelivery(role, delivery?.assigned_driver_id, me?.id);
   const flagged = isFlagged(order);
   const editing = orderEditing(order.status, can.manage, { isAdministrator, hasSalesInvoice: Boolean(order.sales_invoice_number) });
@@ -141,6 +140,7 @@ export function OrderDetailsScreen({ orderId }: { orderId?: string }) {
     flagged,
     packed,
     itemCount: order.order_items.length,
+    removalsToConfirm: (order.order_item_removals ?? []).filter((removal) => !removal.confirmed_at).length,
     delivery: delivery
       ? {
         status: delivery.status,
@@ -195,7 +195,7 @@ export function OrderDetailsScreen({ orderId }: { orderId?: string }) {
   async function confirmDelivery(receivedBy: string) {
     if (!delivery) return;
     setDelivering(true);
-    const outcome = await markDelivered({ ...delivery, orders: { order_number: order.order_number } }, receivedBy, order.updated_at);
+    const outcome = await markDelivered({ ...delivery, orders: { order_number: order.order_number } }, receivedBy, order.updated_at, order.packing_version);
     setDelivering(false);
     if (outcome.status === "not_saved") return;
     if (outcome.status === "error") {
@@ -212,7 +212,6 @@ export function OrderDetailsScreen({ orderId }: { orderId?: string }) {
     confirm: () => void confirmOrder(),
     startPacking: () => changeStatus("for_preparation", `${order.order_number} moved to packing`),
     openPacking: () => router.navigate("/purchasing"),
-    scheduleDelivery: () => router.push({ pathname: "/deliveries/new", params: { orderId: order.id } }),
     markDelivered: () => setConfirmingDelivery(true),
     orderAgain: () => router.push({ pathname: "/orders/[id]/duplicate", params: { id: order.id } }),
   };
@@ -306,12 +305,8 @@ export function OrderDetailsScreen({ orderId }: { orderId?: string }) {
         {RECEIPT_STATUSES.includes(order.status) || receipt.data ? (
           <DeliveryReceiptCard
             label={receipt.data ? receiptNumber(receipt.data) : null}
-            busy={issueReceipt.isPending}
+            busy={receipt.isPending}
             onOpen={() => router.push({ pathname: "/orders/[id]/receipt", params: { id: order.id } })}
-            onIssue={canIssueReceipt && RECEIPT_STATUSES.includes(order.status) ? () => issueReceipt.mutate(order.id, {
-              onSuccess: (result) => toast({ title: `Receipt ${result.dr_label} issued` }),
-              onError: (error) => toast({ title: "Couldn’t issue the receipt", message: error instanceof Error ? error.message : undefined, tone: "error" }),
-            }) : undefined}
           />
         ) : null}
 

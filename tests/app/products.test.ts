@@ -116,3 +116,11 @@ test("product list: Low stock and Out of stock filters (requirement PS-02)", () 
   assert.deepEqual(filterProducts(rows, "out", "").map((r) => r.id), ["out"], "untracked and archived products are left out");
   assert.deepEqual(filterCounts(rows), { all: 4, stocked: 3, low: 1, out: 1, archived: 1 });
 });
+
+test("missing stock is not zero (Jac, 8 Nov afternoon)", async () => {
+  const { stockUnknown, STOCK_UNAVAILABLE } = await import("@/features/products/productsLogic");
+  assert.equal(stockUnknown(product({ track_stock: true, stock_quantity: null })), true, "tracked with no record: unknown");
+  assert.equal(stockUnknown(product({ track_stock: true, stock_quantity: 0 })), false, "a recorded 0 is known");
+  assert.equal(stockUnknown(product({ track_stock: false, stock_quantity: null })), false, "untracked is not 'unavailable'");
+  assert.equal(STOCK_UNAVAILABLE.label, "Stock unavailable");
+});

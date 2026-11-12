@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { hasPermission, PERMISSIONS } from "@/constants/permissions";
 import {
-  chartBars, chartPeriodFor, compact, costNote, customRangeLabel, matchPeriod, parseRange, rangeDays, drLabel, formatPercentOrDash, periodRange, profitLine, rangeLabel, statementCsv, statementHtml, toCsv, volumeText,
+  chartBars, chartPeriodFor, compact, costNote, customRangeLabel, matchPeriod, parseRange, rangeDays, drLabel, formatPercentOrDash, periodRange, profitLine, rangeLabel, statementCsv, statementHtml, statementText, toCsv, volumeText,
   type Statement, type Totals,
 } from "@/features/reports/reportsLogic";
 
@@ -12,7 +12,8 @@ test("reports are for administrators only", () => {
   assert.equal(hasPermission("administrative_staff", PERMISSIONS.viewReports), false);
   assert.equal(hasPermission("fulfillment_staff", PERMISSIONS.viewReports), false);
   assert.equal(hasPermission("delivery_staff", PERMISSIONS.viewReports), false);
-  assert.equal(hasPermission("administrative_staff", PERMISSIONS.managePricing), false, "requirement RE-05: only the administrator updates prices");
+  assert.equal(hasPermission("administrative_staff", PERMISSIONS.managePricing), true, "prototype: administrative staff update prices");
+  assert.equal(hasPermission("fulfillment_staff", PERMISSIONS.managePricing), false, "prototype: purchasing has no Pricing tab");
 });
 
 test("periods: Sunday-to-Saturday weeks, months, quarters and years, and earlier ones", () => {
@@ -87,6 +88,22 @@ test("customer statement: itemized orders with discounts, brand and TIN, escaped
   assert.equal(csv[0], "Delivery date,Order,DR,Status,Product,Quantity,Unit,Unit price,Amount");
   assert.equal(csv.length, 5);
   assert.equal(csv[3], "2026-08-29,ORD-1049,DR-0049,Discount,,,,,-110.00");
+});
+
+test("Viber/SMS statement: proof of billing text with no withholding (Jac, 8 Nov)", () => {
+  const lines = statementText(statement, "Meah Trading").split("\n");
+  assert.equal(lines[0], "MEAH TRADING — PROOF OF BILLING");
+  assert.equal(lines[1], "Customer: Casa Verde <Restaurant>");
+  assert.equal(lines[2], "Billing Period: Aug 1, 2026 – Aug 31, 2026");
+  assert.equal(lines[4], "Total Amount Due: ₱1,140.00");
+  assert.ok(lines.includes("Aug 29, 2026 (DR-0049) - ₱990.00 [Confirmed]"));
+  assert.ok(lines.includes("  • Red onions (10 kg): ₱1,000.00"));
+  assert.ok(lines.includes("  • Discount: −₱110.00"));
+  assert.ok(lines.includes("Aug 30, 2026 (ORD-1050) - ₱150.00 [For verification]"));
+  assert.equal(lines.at(-1), "Exact amount to collect: ₱1,140.00. Thank you!");
+  const text = lines.join("\n");
+  assert.doesNotMatch(text, /withholding|2307|CWT/i);
+  assert.match(statementText({ ...statement, orders: [] }, "MEAH"), /DELIVERIES BREAKDOWN:\nNo orders in this period\./);
 });
 
 test("picked date ranges: labels, matching tabs, chart grouping and route params", () => {

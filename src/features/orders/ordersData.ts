@@ -25,6 +25,7 @@ export type OrderListRow = {
   attention_reason: string | null;
   created_at: string;
   order_total: number;
+  sales_invoice_number?: string | null;
   customers: { business_name: string; brand_name?: string | null } | null;
   order_items: { id: string }[];
   /** The issued Delivery Receipt, if any (searchable by DR#, requirement OM-01). */
@@ -33,7 +34,7 @@ export type OrderListRow = {
 
 // Line ids, counted in the app: PostgREST 12+ reads "order_items(count)" as a
 // column called count (aggregates are off), which fails with "permission denied".
-const LIST_COLUMNS = "id,order_number,customer_id,status,requested_delivery_date,requires_attention,attention_reason,created_at,order_total,customers(business_name,brand_name),order_items(id),delivery_receipts(dr_number)";
+const LIST_COLUMNS = "id,order_number,customer_id,status,requested_delivery_date,requires_attention,attention_reason,created_at,order_total,sales_invoice_number,customers(business_name,brand_name),order_items(id),delivery_receipts(dr_number)";
 
 export function useOrdersList() {
   return useQuery({
@@ -57,6 +58,7 @@ export type OrderLine = {
   unit_price: number;
   line_total: number;
   preparation_status: string;
+  note_changed_at?: string | null;
   products: { product_name: string } | null;
   product_varieties: { variety_name: string } | null;
 };
@@ -86,14 +88,18 @@ export type OrderDetail = {
   deliveries: OrderDelivery[] | null;
   order_items: OrderLine[];
   order_activity: OrderActivity[];
+  /** Goes up each time an edit changes what has to be packed; sent with "delivered". */
+  packing_version?: number;
+  order_item_removals?: { id: string; confirmed_at: string | null }[] | null;
 };
 
 const DETAIL_COLUMNS = [
-  "id,order_number,status,updated_at,order_source,requested_delivery_date,delivery_time_start,delivery_time_end,order_sources(label),notes,requires_attention,attention_reason",
+  "id,order_number,status,updated_at,packing_version,order_source,requested_delivery_date,delivery_time_start,delivery_time_end,order_sources(label),notes,requires_attention,attention_reason",
   "discount_type,discount_value,discount_reason,sales_invoice_number,order_subtotal,order_discount,order_total",
   "customers(business_name,brand_name,contact_person,phone,delivery_address)",
   "deliveries(id,assigned_driver_id,scheduled_date,scheduled_time,status,notes,received_by,profiles!deliveries_assigned_driver_id_fkey(full_name,email))",
-  "order_items(id,quantity,unit_of_measurement,unit_price,line_total,preparation_status,products(product_name),product_varieties(variety_name))",
+  "order_items(id,quantity,unit_of_measurement,unit_price,line_total,preparation_status,note_changed_at,products(product_name),product_varieties(variety_name))",
+  "order_item_removals(id,confirmed_at)",
   "order_activity(id,action,details,created_at,profiles(full_name,email))",
 ].join(",");
 

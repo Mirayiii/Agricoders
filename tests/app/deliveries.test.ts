@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  stopIsRepacking,
   buildRoutes,
   deliveredLabel,
   driverStopsText,
@@ -136,4 +137,11 @@ test("DE-03: a cancelled order's receipt says VOID on every download", () => {
   assert.ok(html.includes("DR NO:</span> 0007"), "same DR number");
   assert.match(receiptFileName(voided), / VOID$/);
   assert.doesNotMatch(receiptHtml(receipt), /VOID/, "a valid receipt has no VOID mark");
+});
+
+test("a stop whose order is back in Packing can't be marked delivered", () => {
+  assert.equal(stopIsRepacking({ status: "scheduled", orders: { status: "for_preparation" } }), true);
+  assert.equal(stopIsRepacking({ status: "scheduled", orders: { status: "for_delivery" } }), false);
+  assert.equal(stopIsRepacking({ status: "completed", orders: { status: "completed" } }), false);
+  assert.equal(stopIsRepacking({ status: "scheduled", orders: null }), false);
 });

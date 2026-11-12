@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as Clipboard from "expo-clipboard";
 import { useIsOnline } from "@/services/offline";
 import { ReportsOffline } from "../ReportsOffline";
 import { StyleSheet, Text, View } from "react-native";
@@ -12,7 +13,7 @@ import { formatMoney } from "@/utils/format";
 import { BarChart, PeriodPicker, SectionHead, StatBox, StatGrid, usePeriod } from "../reportParts";
 import { shareCsv, useCustomerStatement } from "../reportsData";
 import {
-  chartBars, costNote, drLabel, formatPercentOrDash, profitLine, statementCsv, statementHtml, volumeText,
+  chartBars, costNote, drLabel, formatPercentOrDash, profitLine, statementCsv, statementHtml, statementText, volumeText,
   type Period, type Range, type StatementOrder,
 } from "../reportsLogic";
 
@@ -31,9 +32,24 @@ export function CustomerAnalyticsScreen({ customerId = "", initialPeriod = "week
   const online = useIsOnline();
   const [mode, setMode] = useState<"period" | "trend">("period");
   const [measure, setMeasure] = useState<"sales" | "volume">("sales");
-  const [sharing, setSharing] = useState<"pdf" | "csv" | null>(null);
+  const [sharing, setSharing] = useState<"pdf" | "csv" | "text" | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const data = statement.data;
+
+  // Prototype "Share Statement (Viber / SMS)": copies a plain-text proof of billing to paste into a chat.
+  async function copyStatement() {
+    if (!data) return;
+    setSharing("text");
+    setShareError(null);
+    try {
+      await Clipboard.setStringAsync(statementText(data, BUSINESS_NAME));
+      toast({ title: `Statement copied for ${data.customer.name}`, message: "Ready to paste into Viber or SMS" });
+    } catch {
+      setShareError("The statement couldn’t be copied. Try again.");
+    } finally {
+      setSharing(null);
+    }
+  }
 
   async function share(kind: "pdf" | "csv") {
     if (!data) return;
@@ -92,6 +108,7 @@ export function CustomerAnalyticsScreen({ customerId = "", initialPeriod = "week
             <View style={styles.flex}><Button label="Share PDF" icon="share" size="lg" loading={sharing === "pdf"} disabled={sharing !== null} onPress={() => void share("pdf")} /></View>
             <View style={styles.flex}><Button label="Export CSV" icon="download" type="brandOutline" size="lg" loading={sharing === "csv"} disabled={sharing !== null} onPress={() => void share("csv")} /></View>
           </View>
+          <Button label="Share statement (Viber / SMS)" icon="message" type="brandOutline" size="lg" loading={sharing === "text"} disabled={sharing !== null} onPress={() => void copyStatement()} />
           {shareError ? <InlineAlert title="Not shared" message={shareError} /> : null}
           <SectionHead title="Orders breakdown" right={`${data.orders.length} order${data.orders.length === 1 ? "" : "s"}`} />
           {data.orders.length ? data.orders.map((order) => <OrderCard key={order.order_id} order={order} />) : (

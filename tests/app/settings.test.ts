@@ -13,10 +13,10 @@ const profile = (extra: Partial<Profile>): Profile => ({
   ...extra,
 });
 
-test("More menu per role follows requirement SI-02", () => {
+test("More menu per role follows the prototype", () => {
   assert.deepEqual(moreMenu("administrator").map((item) => item.title), ["User management", "Customers", "Products & stock", "Reports", "Notifications", "Settings"]);
-  assert.deepEqual(moreMenu("administrative_staff").map((item) => item.title), ["Customers", "Notifications", "Settings"]);
-  assert.deepEqual(moreMenu("fulfillment_staff").map((item) => item.title), ["Notifications", "Settings"]);
+  assert.deepEqual(moreMenu("administrative_staff").map((item) => item.title), ["Customers", "Products & stock", "Notifications", "Settings"]);
+  assert.deepEqual(moreMenu("fulfillment_staff").map((item) => item.title), ["Products & stock", "Notifications", "Settings"]);
   assert.deepEqual(moreMenu("delivery_staff").map((item) => item.title), ["Notifications", "Settings"]);
 });
 
@@ -42,32 +42,42 @@ test("a role preview swaps only the role, and only for the administrator who sta
   assert.equal(activePreviewRole(admin, null), null);
 });
 
-test("AS-03: push switches only for the events each role already receives", () => {
-  const keys = (role: Parameters<typeof notificationSettings>[0]) => notificationSettings(role).map((row) => row.key);
-  assert.deepEqual(keys("administrator"), ["delivery_reminders", "push_new_orders", "push_flagged_orders", "push_delivery_reminders"]);
-  assert.deepEqual(keys("administrative_staff"), ["delivery_reminders", "push_new_orders", "push_flagged_orders", "push_delivery_reminders"]);
-  assert.deepEqual(keys("delivery_staff"), ["delivery_reminders", "push_delivery_reminders"]);
-  assert.deepEqual(keys("fulfillment_staff"), ["push_ready_to_buy"], "purchasing staff: Ready to buy only, no in-app reminder switch");
-  assert.deepEqual(keys(null), []);
-  const driverPush = notificationSettings("delivery_staff").find((row) => row.kind === "push");
-  assert.match(driverPush?.description ?? "", /your own stops/);
-  assert.ok(!keys("administrator").some((key) => key.includes("stock")), "no low-stock switch: there is no such event");
+test("Settings: the prototype's three switches, per role", () => {
+  const titles = (role: Parameters<typeof notificationSettings>[0]) => notificationSettings(role).map((row) => row.title);
+  assert.deepEqual(titles("administrator"), ["Push notifications", "Delivery reminders", "Low-stock alerts"], "as in Figma 25:2115");
+  assert.deepEqual(titles("administrative_staff"), ["Push notifications", "Delivery reminders"]);
+  assert.deepEqual(titles("fulfillment_staff"), ["Push notifications", "Low-stock alerts"]);
+  assert.deepEqual(titles("delivery_staff"), ["Push notifications", "Delivery reminders"]);
+  assert.deepEqual(titles(null), []);
+  assert.deepEqual(notificationSettings("administrator").map((row) => row.description), ["Alerts on this phone", "Day before and morning of", "When stock reaches its alert level"]);
+  // Push sending and low-stock alerts aren't built yet: those switches are disabled, "Not available yet".
+  assert.deepEqual(notificationSettings("administrator").map((row) => row.available), [false, true, false]);
 });
 
-test("AS-03: the app's switch list matches the server's", async () => {
-  const { readFileSync } = await import("node:fs");
-  const { PUSH_CATEGORIES_BY_ROLE } = await import("@/features/settings/settingsLogic");
-  const { readdirSync } = await import("node:fs");
+test("Settings: the app's switch list matches the server's", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { SETTINGS_BY_ROLE } = await import("@/features/settings/settingsLogic");
   // The latest migration that defines the list wins.
   const sql = readdirSync("supabase/migrations").sort().reverse()
     .map((name) => readFileSync(`supabase/migrations/${name}`, "utf8"))
-    .find((text) => text.includes("function public.push_categories_for_role")) ?? "";
-  const body = sql.slice(sql.indexOf("function public.push_categories_for_role"), sql.indexOf("function public.push_category_for_type"));
-  for (const [role, categories] of Object.entries(PUSH_CATEGORIES_BY_ROLE)) {
+    .find((text) => text.includes("function public.settings_switches_for_role")) ?? "";
+  const body = sql.slice(sql.indexOf("function public.settings_switches_for_role"), sql.indexOf("function public.set_my_setting"));
+  for (const [role, keys] of Object.entries(SETTINGS_BY_ROLE)) {
     const match = body.match(new RegExp(`when '${role}' then array\\[([^\\]]*)\\]`));
     const server = match ? [...match[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]) : [];
-    assert.deepEqual(server, [...categories], role);
+    assert.deepEqual(server, [...keys], role);
   }
+});
+
+test("Settings: the app and server agree on which switches work yet", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { AVAILABLE_SETTINGS } = await import("@/features/settings/settingsLogic");
+  const sql = readdirSync("supabase/migrations").sort().reverse()
+    .map((name) => readFileSync(`supabase/migrations/${name}`, "utf8"))
+    .find((text) => text.includes("function public.setting_available")) ?? "";
+  const body = sql.slice(sql.indexOf("function public.setting_available"), sql.indexOf("function public.set_my_setting"));
+  const server = [...body.matchAll(/p_key = '([a-z_]+)'/g)].map((m) => m[1]);
+  assert.deepEqual(server, [...AVAILABLE_SETTINGS]);
 });
 
 test("user search and role filters", () => {
@@ -90,16 +100,23 @@ test("user search and role filters", () => {
   assert.deepEqual(userBadge(users[2], locks), { label: "Inactive", tone: "neutral" });
 });
 
-test("the More menu doesn't widen administrative staff permissions", async () => {
+test("role permissions follow the prototype", async () => {
   const { PERMISSIONS, hasPermission } = await import("@/constants/permissions");
-  // Order-price overrides stay administrator-only (the server checks it too, phase4 tests).
-  for (const permission of [PERMISSIONS.manageUsers, PERMISSIONS.viewReports]) {
-    assert.equal(hasPermission("administrative_staff", permission), false);
-  }
-  // Requirements SI-02 and PS-01 to PS-03: Products & stock is the administrator's only.
+  // User management and Reports stay with the administrator (the server checks it too).
   for (const role of ["administrative_staff", "fulfillment_staff", "delivery_staff"] as const) {
-    for (const permission of [PERMISSIONS.viewInventory, PERMISSIONS.manageInventory, PERMISSIONS.manageProducts, PERMISSIONS.managePricing, PERMISSIONS.archiveCustomers]) {
+    for (const permission of [PERMISSIONS.manageUsers, PERMISSIONS.viewReports]) {
       assert.equal(hasPermission(role, permission), false, `${role} ${permission}`);
+    }
+  }
+  // Products & stock: administrative and purchasing staff; prices and customer archive: administrative staff.
+  const expected = {
+    administrative_staff: { viewInventory: true, manageInventory: true, manageProducts: true, managePricing: true, archiveCustomers: true },
+    fulfillment_staff: { viewInventory: true, manageInventory: true, manageProducts: true, managePricing: false, archiveCustomers: false },
+    delivery_staff: { viewInventory: false, manageInventory: false, manageProducts: false, managePricing: false, archiveCustomers: false },
+  } as const;
+  for (const [role, permissions] of Object.entries(expected) as [keyof typeof expected, Record<string, boolean>][]) {
+    for (const [permission, allowed] of Object.entries(permissions)) {
+      assert.equal(hasPermission(role, permission as never), allowed, `${role} ${permission}`);
     }
   }
   assert.equal(hasPermission("administrative_staff", PERMISSIONS.manageCustomers), true, "office staff still add and edit customers");

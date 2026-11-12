@@ -1,28 +1,29 @@
-import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Avatar, BottomSheet, Button, Card, InlineAlert, ListGroup, ListRow, Screen, SecondaryButton, Switch, useToast } from "@/components";
+import { Avatar, BottomSheet, Button, Card, InlineAlert, ListGroup, ListRow, Screen, Switch, useToast } from "@/components";
 import { BUSINESS_NAME } from "@/constants/app";
 import { ROLE_META } from "@/constants/roles";
 import { colors, radii, spacing, typography } from "@/constants/theme";
-import { useAuth } from "@/features/auth";
+import { ChangePasswordSheet, useAuth } from "@/features/auth";
 import { connectivity, syncNow, useIsOnline, useOfflineOptional, useOutbox } from "@/services/offline";
 import { isSupabaseConfigured } from "@/services/supabase";
-import { useNotificationPreferences, useSetDeliveryReminders, useSetPushPreference } from "../settingsData";
-import { notificationSettings, type NotificationSetting } from "../settingsLogic";
+import { useNotificationPreferences, useSetSetting } from "../settingsData";
+import { SETTING_COLUMN, notificationSettings, type SettingSwitch } from "../settingsLogic";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "—";
 
-export function SettingsScreen() {
+/** `passwordOpen` starts with the Change password sheet open (dev preview). */
+export function SettingsScreen({ passwordOpen = false }: { passwordOpen?: boolean } = {}) {
   const { profile, previewRole, realRole, signOut } = useAuth();
   const offline = useOfflineOptional();
   const online = useIsOnline();
   const { counts } = useOutbox();
   const unsyncedCount = counts.pending + counts.syncing + counts.rejected;
   const [helpOpen, setHelpOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(passwordOpen);
   const [checking, setChecking] = useState(false);
   const name = profile?.full_name ?? profile?.username ?? "";
   // Staff sign in by username; the account email is internal and not shown.
@@ -40,7 +41,8 @@ export function SettingsScreen() {
           </View>
         </View>
         <View style={styles.divider} />
-        <ListRow title="Change password" icon="key-outline" onPress={() => router.push("/change-password")} last />
+        <ListRow title="Change password" icon="key-outline" onPress={() => setChangingPassword(true)} last />
+        <ChangePasswordSheet visible={changingPassword} onClose={() => setChangingPassword(false)} />
       </Card>
 
       <View style={styles.group}>
@@ -73,7 +75,7 @@ export function SettingsScreen() {
         </ListGroup>
       </View>
 
-      <SecondaryButton label="Sign out" tone="danger" icon={<Ionicons name="log-out-outline" size={20} color={colors.danger} />} onPress={() => (offline ? offline.requestSignOut() : void signOut())} />
+      <Button label="Sign out" type="dangerQuiet" size="lg" icon="log-out" onPress={() => (offline ? offline.requestSignOut() : void signOut())} />
       <Text style={styles.footer}>{BUSINESS_NAME}</Text>
 
       <BottomSheet visible={helpOpen} onClose={() => setHelpOpen(false)}>
@@ -86,25 +88,19 @@ export function SettingsScreen() {
 function NotificationPreferencesCard() {
   const { profile } = useAuth();
   const prefs = useNotificationPreferences();
-  const setReminders = useSetDeliveryReminders();
-  const setPush = useSetPushPreference();
+  const setSetting = useSetSetting();
   const toast = useToast();
   const rows = notificationSettings(profile?.role);
-  const saving = setReminders.isPending || setPush.isPending;
+  const saving = setSetting.isPending;
 
-  function valueOf(row: NotificationSetting): boolean {
+  function valueOf(row: SettingSwitch): boolean {
     // Show the choice being saved straight away; it settles when the save returns.
-    if (row.kind === "in_app") {
-      if (setReminders.isPending && typeof setReminders.variables === "boolean") return setReminders.variables;
-      return prefs.data?.delivery_reminders ?? true;
-    }
-    if (setPush.isPending && setPush.variables?.category === row.category) return setPush.variables.on;
-    return prefs.data?.[`push_${row.category}`] ?? true;
+    if (setSetting.isPending && setSetting.variables?.key === row.key) return setSetting.variables.on;
+    return prefs.data?.[SETTING_COLUMN[row.key]] ?? true;
   }
 
-  function change(row: NotificationSetting, on: boolean) {
-    if (row.kind === "in_app") setReminders.mutate(on, { onSuccess: () => toast(on ? "Delivery reminders on" : "Delivery reminders off") });
-    else setPush.mutate({ category: row.category, on }, { onSuccess: () => toast(`${row.title.replace("Push: ", "Push for ")} ${on ? "on" : "off"}`) });
+  function change(row: SettingSwitch, on: boolean) {
+    setSetting.mutate({ key: row.key, on }, { onSuccess: () => toast(`${row.title} ${on ? "on" : "off"}`) });
   }
 
   if (!rows.length) {
@@ -119,13 +115,13 @@ function NotificationPreferencesCard() {
     <Card style={styles.prefsCard}>
       {rows.map((row, index) => {
         const value = valueOf(row);
-        const disabled = prefs.isPending || prefs.isError || saving;
+        const disabled = !row.available || prefs.isPending || prefs.isError || saving;
         return (
           <Pressable
             key={row.key}
             accessibilityRole="switch"
             accessibilityLabel={row.title}
-            accessibilityHint={row.description}
+            accessibilityHint={row.available ? row.description : `Not available yet. ${row.description}`}
             accessibilityState={{ checked: value, disabled }}
             disabled={disabled}
             onPress={() => change(row, !value)}
@@ -133,21 +129,19 @@ function NotificationPreferencesCard() {
           >
             <View style={styles.flex}>
               <View style={styles.prefTitleRow}>
-                <Text style={styles.prefTitle}>{row.title}</Text>
+                <Text style={[styles.prefTitle, !row.available && styles.prefTitleOff]}>{row.title}</Text>
+                {!row.available ? <View style={styles.soonPill}><Text style={styles.soonText}>Not available yet</Text></View> : null}
               </View>
               <Text style={styles.prefDescription}>{row.description}</Text>
             </View>
             <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-              <Switch value={value} />
+              <Switch value={value} disabled={!row.available} />
             </View>
           </Pressable>
         );
       })}
       {prefs.isError ? <InlineAlert title="Couldn't load your preferences" message="Check your connection and open Settings again." /> : null}
-      {setReminders.isError || setPush.isError ? <InlineAlert title="Not saved" message="Your setting didn't change. Try again." /> : null}
-      {rows.some((row) => row.kind === "push") ? (
-        <Text style={styles.prefNote}>Push choices are saved now. Phones start getting push alerts once push is set up for the business. Notifications in the app arrive whatever these switches say.</Text>
-      ) : null}
+      {setSetting.isError ? <InlineAlert title="Not saved" message="Your setting didn't change. Try again." /> : null}
     </Card>
   );
 }
@@ -187,9 +181,11 @@ const styles = StyleSheet.create({
   prefRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   prefDivider: { borderBottomWidth: 1, borderBottomColor: colors.border },
   prefTitleRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
+  prefTitleOff: { color: colors.textSecondary },
+  soonPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radii.pill, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  soonText: { fontSize: 11, fontWeight: "600", color: colors.textSecondary },
   prefTitle: { ...typography.bodyMedium, fontWeight: "600", color: colors.text },
   prefDescription: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-  prefNote: { ...typography.caption, color: colors.textSecondary, paddingTop: spacing.sm },
   status: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
   statusDotOff: { backgroundColor: colors.danger },

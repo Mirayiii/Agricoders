@@ -59,11 +59,9 @@ test("form: code and business name required; blanks saved as not recorded", () =
   assert.equal(payload.customer_code, "CUS-1");
   assert.equal(payload.business_name, "Casa Verde");
   assert.equal(payload.email, null);
-  // Requirement CU-01: business type and preferred delivery window, optional.
-  const typed = draftPayload({ ...EMPTY_DRAFT, customer_code: "C", business_name: "B", business_type: "  Hotel   chain ", preferred_delivery_window: " 6 to 9 AM " });
-  assert.equal(typed.business_type, "Hotel chain");
-  assert.equal(typed.preferred_delivery_window, "6 to 9 AM");
-  assert.equal(payload.business_type, null);
+  // Prototype (5 Nov): the form has no business type, delivery window or notes,
+  // so a save leaves whatever is stored for them unchanged.
+  assert.deepEqual(Object.keys(payload).sort(), ["brand_name", "business_name", "contact_person", "customer_code", "delivery_address", "email", "phone", "tin"]);
 });
 
 test("form: Save changes only when something changed", () => {

@@ -61,7 +61,7 @@ if grep -q ERROR "$out1" "$out2"; then cat "$out1" "$out2"; fail "a simultaneous
 rid=$(q -c "select gen_random_uuid()")
 q -c "update public.deliveries set assigned_driver_id = '00000000-0000-0000-0000-0000000006d2' where id = '00000000-0000-0000-0000-0000000006f1'" >/dev/null
 for i in 1 2; do
-  ( q -c "begin; $(as_user 00000000-0000-0000-0000-0000000006d2) select public.complete_delivery('00000000-0000-0000-0000-0000000006f1', 'Joy', '$rid'); select pg_sleep(0.4); commit;" >"$out1.$i" 2>&1 ) &
+  ( q -c "begin; $(as_user 00000000-0000-0000-0000-0000000006d2) select public.complete_delivery('00000000-0000-0000-0000-0000000006f1', 'Joy', '$rid', tests.pv_delivery('00000000-0000-0000-0000-0000000006f1')); select pg_sleep(0.4); commit;" >"$out1.$i" 2>&1 ) &
 done
 wait || true
 [ "$(q -c "select count(*) from public.delivery_receipts where order_id = '00000000-0000-0000-0000-0000000006e1'")" = "1" ] && pass "two simultaneous Delivered taps issue one receipt" || { cat "$out1".*; fail "duplicate receipts"; }

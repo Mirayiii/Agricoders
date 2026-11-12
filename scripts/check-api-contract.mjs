@@ -1,5 +1,5 @@
 // Integration check: every server function and table column the app asks for
-// exists in a database built from the migrations, with the argument names the
+// exists (and, for columns, can be read by a signed-in user) in a database built from the migrations, with the argument names the
 // app sends. Usage: node scripts/check-api-contract.mjs <database> (uses psql
 // with the PG* environment variables). Prints problems and exits 1 if any.
 import { execFileSync } from "node:child_process";
@@ -31,7 +31,10 @@ for (const line of sql(`select p.proname, coalesce(array_to_string(p.proargnames
   procs.set(name, list);
 }
 const columns = new Map();
-for (const line of sql(`select table_name, column_name from information_schema.columns where table_schema = 'public'`).split("\n")) {
+// Only columns a signed-in user may read: some tables use column-level grants,
+// so a column that exists but isn't granted fails in the app with
+// "permission denied".
+for (const line of sql(`select table_name, column_name from information_schema.columns where table_schema = 'public' and has_column_privilege('authenticated', format('public.%I', table_name), column_name, 'SELECT')`).split("\n")) {
   const [table, column] = line.split("|");
   if (!columns.has(table)) columns.set(table, new Set());
   columns.get(table).add(column);
@@ -102,17 +105,30 @@ for (const file of files) {
       select = constant ? [...constant[1].matchAll(/"([^"]*)"/g)].map((x) => x[1]).join(",") : null;
     }
     if (m[2] !== "select" || !select) continue;
-    let depth = 0; let token = ""; const top = [];
-    for (const ch of select + ",") {
-      if (ch === "(") depth += 1;
-      if (ch === ")") depth -= 1;
-      if (ch === "," && depth === 0) { top.push(token.trim()); token = ""; } else token += ch;
+    checkSelect(rel, table, select);
+  }
+}
+
+// Columns of a select, including embedded tables such as
+// "order_items(id,notes,products(product_name))" or "profiles!fk(full_name)".
+function checkSelect(rel, table, select) {
+  let depth = 0; let token = ""; const top = [];
+  for (const ch of select + ",") {
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (ch === "," && depth === 0) { top.push(token.trim()); token = ""; } else token += ch;
+  }
+  for (const field of top) {
+    if (!field || field === "*") continue;
+    const open = field.indexOf("(");
+    if (open >= 0) {
+      const embedded = field.slice(0, open).split(":").pop().split("!")[0].trim();
+      if (!columns.has(embedded)) { problems.push(`${rel}: ${table} embeds ${embedded}, which does not exist or can't be read`); continue; }
+      checkSelect(rel, embedded, field.slice(open + 1, field.lastIndexOf(")")));
+      continue;
     }
-    for (const field of top) {
-      if (!field || field === "*" || field.includes("(")) continue;
-      const name = field.split(":").pop().split("::")[0].trim();
-      if (!columns.get(table).has(name)) problems.push(`${rel}: ${table}.${name} does not exist`);
-    }
+    const name = field.split(":").pop().split("::")[0].trim();
+    if (!columns.get(table).has(name)) problems.push(`${rel}: ${table}.${name} does not exist or can't be read by signed-in users`);
   }
 }
 

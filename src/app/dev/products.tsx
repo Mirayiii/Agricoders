@@ -134,6 +134,11 @@ async function fakeRpc(name: string, args: Record<string, unknown>) {
       if (p) p.status = args.p_archived ? "archived" : "active";
       return ok({ product_id: p?.id, product_name: p?.product_name, status: p?.status });
     }
+    case "delete_product": {
+      const p = find(args.p_product_id);
+      products = products.filter((row) => row.id !== args.p_product_id);
+      return ok({ product_id: p?.id, product_name: p?.product_name, deleted: true });
+    }
     case "update_product": {
       const p = find(args.p_product_id);
       const changes = args.p_changes as Record<string, unknown>;
@@ -187,9 +192,9 @@ function fakeQuery(table: string) {
   return chain;
 }
 
-type Preview = "list" | "details" | "pricing" | "stock" | "simple" | "batch" | "reports" | "customers" | "statement" | "volume" | "item" | "orders" | "prices" | "billing" | "office";
+type Preview = "list" | "archived" | "details" | "pricing" | "stock" | "simple" | "batch" | "reports" | "customers" | "statement" | "volume" | "item" | "orders" | "prices" | "billing" | "office";
 const PREVIEWS: { key: Preview; label: string }[] = [
-  { key: "list", label: "Products & stock" }, { key: "details", label: "Details" }, { key: "pricing", label: "Pricing" }, { key: "stock", label: "Stock" },
+  { key: "list", label: "Products & stock" }, { key: "archived", label: "Archived products" }, { key: "details", label: "Details" }, { key: "pricing", label: "Pricing" }, { key: "stock", label: "Stock" },
   { key: "simple", label: "Untracked product" }, { key: "batch", label: "Batch prices" }, { key: "reports", label: "Reports" }, { key: "customers", label: "Customer report" },
   { key: "statement", label: "Customer statement" }, { key: "volume", label: "Product volume" }, { key: "item", label: "Item analytics" }, { key: "orders", label: "Order report" },
   { key: "prices", label: "Daily prices" }, { key: "billing", label: "Customer statement row" }, { key: "office", label: "Office staff customer" },
@@ -227,6 +232,7 @@ export default function ProductsPreview() {
   const screen = (() => {
     switch (preview) {
       case "list": return <ProductsScreen />;
+      case "archived": return <ProductsScreen archivedOnly />;
       case "details": return <ProductDetailScreen productId="p2" initialTab="details" />;
       case "pricing": return <ProductDetailScreen productId="p2" initialTab="pricing" />;
       case "stock": return <ProductDetailScreen productId="p2" initialTab="stock" />;

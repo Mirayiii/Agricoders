@@ -15,6 +15,7 @@ export type OrderCardData = {
   total: number;
   requires_attention: boolean;
   attention_reason: string | null;
+  sales_invoice_number?: string | null;
 };
 
 /** Figma "Order Card": ID, customer, status, date · items · total, and an optional issue note. */
@@ -29,7 +30,15 @@ export function OrderCard({ order, onPress }: { order: OrderCardData; onPress: (
     >
       <View style={styles.header}>
         <View style={styles.title}>
-          <Text style={styles.number}>{order.order_number}</Text>
+          <View style={styles.numberRow}>
+            <Text style={styles.number}>{order.order_number}</Text>
+            {order.sales_invoice_number ? (
+              <>
+                <Text style={styles.dot}>·</Text>
+                <Text style={styles.si}>SI# {order.sales_invoice_number}</Text>
+              </>
+            ) : null}
+          </View>
           <Text style={styles.customer} numberOfLines={1}>{order.customer}</Text>
         </View>
         <StatusBadge label={meta.label} tone={meta.tone} />
@@ -56,7 +65,9 @@ const styles = StyleSheet.create({
   card: { gap: 8, padding: 16 },
   header: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   title: { flex: 1, minWidth: 0, gap: 2 },
+  numberRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   number: { ...text.overline, color: colors.primary },
+  si: { ...text.overline, color: colors.primary, backgroundColor: colors.primarySoft, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radii.sm, overflow: "hidden" },
   customer: { ...text.bodyStrong, color: colors.text },
   meta: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   metaText: { ...text.caption, color: colors.textSecondary },

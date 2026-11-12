@@ -74,7 +74,18 @@ export function isAdvanceOrder(deliveryDate: string, today: string): boolean {
 // ---------------------------------------------------------------------------
 
 export type PackStatus = "pending" | "in_progress" | "completed";
-export type PackLine = { id: string; quantity: number; unit_of_measurement: string; notes: string | null; preparation_status: PackStatus; products: { product_name: string } | null };
+export type PackLine = {
+  id: string;
+  quantity: number;
+  unit_of_measurement: string;
+  notes: string | null;
+  /** Set when the line's note changed after packing started; cleared when the line is ticked again. */
+  note_changed_at?: string | null;
+  preparation_status: PackStatus;
+  products: { product_name: string } | null;
+};
+/** A packed item taken off the order by an edit. Packing staff confirm it was taken out of the prepared order. */
+export type PackRemoval = { id: string; description: string; quantity: number; unit_of_measurement: string; removed_at: string; confirmed_at: string | null };
 export type PackOrder = {
   id: string;
   order_number: string;
@@ -83,11 +94,25 @@ export type PackOrder = {
   delivery_time_start?: string | null;
   delivery_time_end?: string | null;
   customers: { business_name: string; brand_name?: string | null; delivery_address: string | null } | null;
+  /** Goes up each time an edit changes what has to be packed; sent with every tick. */
+  packing_version: number;
   order_items: PackLine[];
+  order_item_removals?: PackRemoval[] | null;
+  deliveries?: { id: string; status: string }[] | null;
 };
 
 export function packedCount(order: PackOrder): number {
   return order.order_items.filter((line) => line.preparation_status === "completed").length;
+}
+
+/** Removed packed items still waiting for packing staff to confirm they were taken out. */
+export function removalsToConfirm(order: Pick<PackOrder, "order_item_removals">): PackRemoval[] {
+  return (order.order_item_removals ?? []).filter((removal) => !removal.confirmed_at);
+}
+
+/** Being packed again after an edit: it already had a delivery booked when it was sent back to Packing. */
+export function isRepacking(order: Pick<PackOrder, "status" | "deliveries">): boolean {
+  return order.status === "for_preparation" && (order.deliveries ?? []).some((delivery) => delivery.status === "scheduled" || delivery.status === "for_delivery");
 }
 
 /** Packing now (being packed) and Ready to start (confirmed), soonest first. */
@@ -102,7 +127,7 @@ export function splitBoard(orders: PackOrder[], today: string) {
 export function withLinePacked(orders: PackOrder[], lineId: string, packed: boolean): PackOrder[] {
   return orders.map((order) =>
     order.order_items.some((line) => line.id === lineId)
-      ? { ...order, order_items: order.order_items.map((line) => (line.id === lineId ? { ...line, preparation_status: packed ? "completed" : "in_progress" } : line)) }
+      ? { ...order, order_items: order.order_items.map((line) => (line.id === lineId ? { ...line, preparation_status: packed ? "completed" : "in_progress", note_changed_at: packed ? null : line.note_changed_at } : line)) }
       : order,
   );
 }
@@ -125,11 +150,10 @@ export function withQueuedTicks(orders: PackOrder[], queued: readonly { rpc: str
 export type Horizon = "immediate" | "3days" | "7days" | "custom";
 export type DateRange = { from: string; to: string };
 /**
- * One line of the buy list. Requirement PU-01 (Jac, 4 Nov): the quantity
- * marked as bought is saved per product and delivery day, shared by Purchasing
- * and the administrator, so any date range shows the same records. `stock` and
- * `short_by` come back for the administrator only (SI-02, PS-02), and only
- * for products with Track inventory on.
+ * One line of To buy (MEAH-Prototype 2.html and Figma, 5 Nov): the demand for
+ * the range, the stock on hand, and what is left to buy (demand less stock).
+ * Read-only: lines are not ticked. `stock` and `short_by` are null when the
+ * product's Track inventory switch is off or it has no stock record.
  */
 export type BuyItem = {
   product_id: string;
@@ -138,73 +162,58 @@ export type BuyItem = {
   unit_key: string;
   quantity: number;
   order_count: number;
+  /** Always 0: the list is read-only since 5 Nov. Kept for older cached lists. */
   bought: number;
-  remaining: number;
+  /** What is left to buy: the demand less the stock on hand. Null when the stock is not tracked or recorded. */
+  remaining: number | null;
   stock: number | null;
   short_by: number | null;
   /** False when the product's Track inventory switch is off: no stock is counted. */
   track_stock?: boolean;
 };
-export type BuyList = { today: string; from: string | null; to: string; overdue_orders: number; items: BuyItem[]; bought_lines: number; total_lines: number };
+export type BuyList = { today: string; from: string | null; to: string; overdue_orders: number; items: BuyItem[]; short_lines: number; total_lines: number };
 
 export const HORIZON_DAYS: Record<Exclude<Horizon, "custom">, number> = { immediate: 2, "3days": 3, "7days": 7 };
 
 /**
- * What the server is asked for. The preset horizons start with no date, so
- * orders that are late and still not packed stay on the list; a custom range
- * uses exactly the dates chosen.
+ * What the server is asked for (prototype windows). Immediate is today and
+ * tomorrow, with no start date, so late orders that are still not packed stay
+ * on the list. 3 Days and 7 Days start tomorrow ("the next 3 days"). A custom
+ * range uses exactly the dates chosen.
  */
 export function horizonQuery(horizon: Horizon, today: string, custom: DateRange | null): { from: string | null; to: string } {
   if (horizon === "custom" && custom) return { from: custom.from, to: custom.to };
-  const days = horizon === "custom" ? HORIZON_DAYS.immediate : HORIZON_DAYS[horizon];
-  return { from: null, to: addDaysIso(today, days - 1) };
+  if (horizon === "3days" || horizon === "7days") return { from: addDaysIso(today, 1), to: addDaysIso(today, HORIZON_DAYS[horizon]) };
+  return { from: null, to: addDaysIso(today, 1) };
 }
 
-/** "Needed for Today & Tomorrow (Aug 27 – 28)". */
+/** "Needed for Today & Tomorrow (Aug 27 – 28)", "Needed for the next 3 days (Aug 28 – 30)". */
 export function horizonLabel(horizon: Horizon, today: string, custom: DateRange | null): string {
   if (horizon === "custom" && custom) {
     const days = daysBetween(custom.from, custom.to) + 1;
     return `Needed ${rangeText(custom.from, custom.to)} (${days} ${days === 1 ? "day" : "days"})`;
   }
-  const days = horizon === "custom" ? HORIZON_DAYS.immediate : HORIZON_DAYS[horizon];
-  const to = addDaysIso(today, days - 1);
-  const span = rangeText(today, to);
-  return days === 2 ? `Needed for Today & Tomorrow (${span})` : `Needed for the next ${days} days (${span})`;
+  if (horizon === "3days" || horizon === "7days") {
+    const range = horizonQuery(horizon, today, null);
+    return `Needed for the next ${HORIZON_DAYS[horizon]} days (${rangeText(range.from!, range.to)})`;
+  }
+  return `Needed for Today & Tomorrow (${rangeText(today, addDaysIso(today, 1))})`;
 }
 
 export function formatAmount(value: number): string {
   return String(Math.round(value * 1000) / 1000);
 }
 
-/**
- * "2 orders · 60 kg in stock" for the administrator; "2 orders" for Purchasing,
- * who do not monitor warehouse stock (SI-02, PS-02).
- */
-export function buySummary(item: BuyItem, showStock: boolean): string {
+/** Figma Buy Row: "2 orders · 60 kg in stock". */
+export function buySummary(item: BuyItem): string {
   const orders = `${item.order_count} ${item.order_count === 1 ? "order" : "orders"}`;
-  if (!showStock) return orders;
   const stock = item.track_stock === false ? "Stock not tracked" : item.stock === null ? `No stock record in ${item.unit}` : `${formatAmount(item.stock)} ${item.unit} in stock`;
   return `${orders} · ${stock}`;
 }
 
-/** Administrator only: "3 kg short of stock", or null when the stock covers it or none is tracked. */
+/** Figma Buy Row shortfall, in amber: "Buy 3 kg more" when the demand is more than the stock. */
 export function shortageText(item: BuyItem): string | null {
-  return item.short_by !== null && item.short_by > 0 ? `${formatAmount(item.short_by)} ${item.unit} short of stock` : null;
-}
-
-/** PU-01: a line is bought when the saved bought quantity covers every day in the range. */
-export const isBought = (item: Pick<BuyItem, "remaining">) => Number(item.remaining) <= 0;
-
-/** PU-01: "Need 5 kg more" when some was bought but demand has since gone up. */
-export function needMoreText(item: Pick<BuyItem, "bought" | "remaining" | "unit">): string | null {
-  return Number(item.bought) > 0 && Number(item.remaining) > 0 ? `Need ${formatAmount(item.remaining)} ${item.unit} more` : null;
-}
-
-/** The progress bar: "3 of 8 bought" and its share. */
-export function buyProgress(list: Pick<BuyList, "bought_lines" | "total_lines">): { done: number; total: number; share: number } {
-  const total = Number(list.total_lines) || 0;
-  const done = Math.min(Number(list.bought_lines) || 0, total);
-  return { done, total, share: total ? done / total : 0 };
+  return item.short_by !== null && item.short_by > 0 ? `Buy ${formatAmount(item.short_by)} ${item.unit} more` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,25 +247,18 @@ export function monthGrid(year: number, month: number): (string | null)[][] {
 // ---------------------------------------------------------------------------
 
 /** PDF columns: Product, Orders, [In stock: administrator only], Needed, Bought, Still to buy. */
-export function buyListHeaders(showStock: boolean): string[] {
-  return ["Product", "Orders", ...(showStock ? ["In stock"] : []), "Needed", "Bought", "Still to buy"];
+export function buyListHeaders(): string[] {
+  return ["Product", "Orders", "In stock", "Needed", "To buy"];
 }
 
-export function buyListRows(list: BuyList, showStock: boolean): string[][] {
-  const amount = (value: number, unit: string) => (Number(value) > 0 ? `${formatAmount(value)} ${unit}` : "–");
+export function buyListRows(list: BuyList): string[][] {
   return list.items.map((item) => [
     item.product_name,
     String(item.order_count),
-    ...(showStock ? [item.track_stock === false ? "Not tracked" : item.stock === null ? "No record" : `${formatAmount(item.stock)} ${item.unit}`] : []),
+    item.track_stock === false ? "Not tracked" : item.stock === null ? "No record" : `${formatAmount(item.stock)} ${item.unit}`,
     `${formatAmount(item.quantity)} ${item.unit}`,
-    amount(item.bought, item.unit),
-    amount(item.remaining, item.unit),
+    item.remaining === null ? "Stock unknown" : Number(item.remaining) > 0 ? `${formatAmount(item.remaining)} ${item.unit}` : "–",
   ]);
-}
-
-/** PU-01: the message on a line whose tick was not saved. */
-export function buySaveProblem(online: boolean): string {
-  return online ? "Not saved. Tap the line to try again." : "Not saved: you're offline. Ticks need a connection. Tap the line to try again once you're back online.";
 }
 
 /**

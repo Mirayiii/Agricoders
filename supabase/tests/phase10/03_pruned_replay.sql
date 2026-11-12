@@ -62,12 +62,12 @@ select pg_temp.ok(not exists (select 1 from public.mutation_requests where reque
 create temp table line as select i.id from public.order_items i join public.orders o on o.id = i.order_id where o.customer_id = '00000000-0000-0000-0000-00000000dd10';
 grant select on line to authenticated;
 update public.orders set status = 'for_preparation' where customer_id = '00000000-0000-0000-0000-00000000dd10';
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-00000000dd02', $q$select public.offline_set_item_packed((select id from line), true, 'd0000000-0000-4000-8000-000000000002', jsonb_build_object('queued_at', now(), 'seen', '{"packed":false,"quantity":2,"unit":"kg"}'::jsonb))$q$) is null, 'runs: a line is ticked');
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-00000000dd02', $q$select public.offline_set_item_packed((select id from line), true, 'd0000000-0000-4000-8000-000000000002', tests.with_pv_item((select id from line), jsonb_build_object('queued_at', now(), 'seen', '{"packed":false,"quantity":2,"unit":"kg"}'::jsonb)))$q$) is null, 'runs: a line is ticked');
 select pg_temp.age('d0000000-0000-4000-8000-000000000002');
 select pg_temp.ok(public.prune_offline_records() >= 1, 'runs: the tick''s records are pruned');
 update public.orders set status = 'for_preparation' where customer_id = '00000000-0000-0000-0000-00000000dd10';
 update public.order_items set preparation_status = 'pending' where id = (select id from line);
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-00000000dd02', $q$select public.offline_set_item_packed((select id from line), true, 'd0000000-0000-4000-8000-000000000002', jsonb_build_object('queued_at', now(), 'seen', '{"packed":false,"quantity":2,"unit":"kg"}'::jsonb))$q$)
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-00000000dd02', $q$select public.offline_set_item_packed((select id from line), true, 'd0000000-0000-4000-8000-000000000002', tests.with_pv_item((select id from line), jsonb_build_object('queued_at', now(), 'seen', '{"packed":false,"quantity":2,"unit":"kg"}'::jsonb)))$q$)
   like 'OFEXP %already applied%', 'a pruned tick sent again with a changed time is refused');
 select pg_temp.ok((select preparation_status = 'pending' from public.order_items where id = (select id from line)), 'and the line stays unticked');
 

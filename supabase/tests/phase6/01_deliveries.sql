@@ -110,7 +110,7 @@ select pg_temp.ok((select (value->>'replayed')::boolean from t where name = 'ass
 -- Reassign to Jun (admin), then take the driver off.
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000a1', $q$select public.assign_delivery_driver('00000000-0000-0000-0000-0000000001d3', '00000000-0000-0000-0000-0000000000d2', gen_random_uuid())$q$) is null, 'administrators reassign drivers');
 select pg_temp.ok((select assigned_driver_id = '00000000-0000-0000-0000-0000000000d2' and route_position = 2 from public.deliveries where id = '00000000-0000-0000-0000-0000000001d3'), 'reassigned: it is stop 2 on Jun''s route');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d3', null, gen_random_uuid())$q$) = 'You can only confirm your own stops', 'after reassignment, Rico can no longer confirm the stop');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d3', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000001d3'))$q$) = 'You can only confirm your own stops', 'after reassignment, Rico can no longer confirm the stop');
 
 -- Drivers list.
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000c1');
@@ -122,33 +122,29 @@ select pg_temp.ok((select value from t where name = 'drivers') @> '[{"full_name"
 -- ---------------------------------------------------------------------------
 -- Confirming deliveries
 -- ---------------------------------------------------------------------------
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d2', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d1', null, gen_random_uuid())$q$) = 'You can only confirm your own stops', 'a driver cannot confirm another driver''s stop');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000f1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d1', null, gen_random_uuid())$q$) like 'Only delivery staff and administrators%', 'purchasing staff cannot confirm deliveries');
--- Requirement DE-04: administrative staff dispatch but don't complete deliveries.
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000c1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d4', null, gen_random_uuid())$q$) = 'Only delivery staff and administrators can mark deliveries delivered', 'administrative staff cannot mark a delivery delivered (DE-04)');
-update public.deliveries set status = 'for_delivery' where id = '00000000-0000-0000-0000-0000000001d4';
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000c1', $q$select public.update_delivery_status('00000000-0000-0000-0000-0000000001d4', 'completed', null)$q$) = 'Only delivery staff and administrators can mark deliveries delivered', 'nor through the general delivery status action (DE-04)');
-select pg_temp.ok((select status = 'for_delivery' from public.deliveries where id = '00000000-0000-0000-0000-0000000001d4'), 'the stop stays open');
-update public.deliveries set status = 'scheduled' where id = '00000000-0000-0000-0000-0000000001d4';
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d2', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d1', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000001d1'))$q$) = 'You can only confirm your own stops', 'a driver cannot confirm another driver''s stop');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000f1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d1', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000001d1'))$q$) = 'You do not have permission to mark deliveries delivered', 'purchasing staff cannot confirm deliveries');
+-- Prototype (5 Nov): administrative staff may mark deliveries delivered too (full flow in phase11).
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000c1', $q$select public.complete_delivery(gen_random_uuid(), null, gen_random_uuid(), tests.pv_delivery(gen_random_uuid()))$q$) = 'Delivery not found', 'administrative staff pass the role check for marking delivered');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000d1');
 set local role authenticated;
-insert into t values ('done', public.complete_delivery('00000000-0000-0000-0000-0000000001d1', '  Mark   Reyes ', '66666666-6666-4666-8666-666666666661'));
-insert into t values ('doneagain', public.complete_delivery('00000000-0000-0000-0000-0000000001d1', '  Mark   Reyes ', '66666666-6666-4666-8666-666666666661'));
+insert into t values ('done', public.complete_delivery('00000000-0000-0000-0000-0000000001d1', '  Mark   Reyes ', '66666666-6666-4666-8666-666666666661', tests.pv_delivery('00000000-0000-0000-0000-0000000001d1')));
+insert into t values ('doneagain', public.complete_delivery('00000000-0000-0000-0000-0000000001d1', '  Mark   Reyes ', '66666666-6666-4666-8666-666666666661', tests.pv_delivery('00000000-0000-0000-0000-0000000001d1')));
 reset role;
 select pg_temp.ok((select status = 'completed' and completed_at is not null and received_by = 'Mark Reyes' from public.deliveries where id = '00000000-0000-0000-0000-0000000001d1'), 'the stop is delivered, with who received it');
 select pg_temp.ok((select status from public.orders where id = '00000000-0000-0000-0000-0000000000e1') = 'completed', 'the order becomes Completed');
 select pg_temp.ok((select (value->>'replayed')::boolean and value->>'dr_label' = (select value->>'dr_label' from t where name = 'done') from t where name = 'doneagain'), 'a retried confirmation returns the first result');
 select pg_temp.ok((select count(*) from public.order_activity where order_id = '00000000-0000-0000-0000-0000000000e1' and action = 'status_changed' and details->>'to_status' = 'completed') = 1 and (select count(*) from public.delivery_receipts) = 1, 'a retry logs nothing twice and issues one receipt');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d1', null, gen_random_uuid())$q$) = 'This delivery is already marked delivered.', 'confirming again with a new tap is refused');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d1', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000001d1'))$q$) = 'This delivery is already marked delivered.', 'confirming again with a new tap is refused');
 -- The receipt issued at delivery.
-select pg_temp.ok((select value->>'dr_label' from t where name = 'done') like 'DR-____', 'the receipt has a DR number separate from the order number');
-select pg_temp.ok((select content->>'order_number' like 'ORD-%' and content->>'customer_name' = 'Casa Verde Restaurant' and content->>'delivery_address' = '12 Mabini St., Makati'
+select pg_temp.ok((select value->>'dr_label' from t where name = 'done') = (select order_number from public.orders where id = '00000000-0000-0000-0000-0000000000e1'), 'the receipt''s DR number is the order number (prototype, 5 Nov)');
+select pg_temp.ok((select content->>'order_number' like 'DR-%' and content->>'customer_name' = 'Casa Verde Restaurant' and content->>'delivery_address' = '12 Mabini St., Makati'
   and (content->>'total')::numeric = 392.50 and jsonb_array_length(content->'lines') = 2 and content->>'issued_by_name' = 'Rico Bautista' and content->>'layout' = 'letter'
   from public.delivery_receipts), 'the receipt saves the customer, lines, total (2.5 kg x 85 + 3 x 60 = 392.50) and who issued it');
 
 -- A cancelled order cannot be delivered.
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000c1', $q$select public.transition_order_status('00000000-0000-0000-0000-0000000000e2', 'cancelled', '{}'::jsonb)$q$) is null, 'office staff cancel an order out for delivery');
-select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d2', null, gen_random_uuid())$q$) like 'This delivery was cancelled%', 'its stop cannot be marked delivered');
+select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000d1', $q$select public.complete_delivery('00000000-0000-0000-0000-0000000001d2', null, gen_random_uuid(), tests.pv_delivery('00000000-0000-0000-0000-0000000001d2'))$q$) like 'This delivery was cancelled%', 'its stop cannot be marked delivered');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000c1', $q$select public.issue_delivery_receipt('00000000-0000-0000-0000-0000000000e2', gen_random_uuid())$q$) like 'This order was cancelled%', 'a cancelled order gets no receipt');
 -- Delivered stops cannot be reassigned.
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000000c1', $q$select public.assign_delivery_driver('00000000-0000-0000-0000-0000000001d1', '00000000-0000-0000-0000-0000000000d2', gen_random_uuid())$q$) like 'This delivery is already delivered%', 'a delivered stop keeps its driver');

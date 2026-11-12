@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Chip } from "@/components";
 import { colors, spacing } from "@/constants/theme";
-import { ChangePasswordScreen, RolePreviewFrame } from "@/features/auth";
+import { RolePreviewFrame } from "@/features/auth";
 import { AuthContext } from "@/features/auth/AuthProvider";
 import { activePreviewRole, previewedProfile, type RolePreview } from "@/features/auth/rolePreview";
 import { MoreScreen } from "@/features/more";
@@ -37,7 +37,7 @@ function fakeQuery(table: string) {
   const chain: Record<string, unknown> = new Proxy({}, {
     get(_target, prop) {
       if (prop === "then") {
-        const rows = table === "profiles" ? USERS : table === "notification_preferences" ? [{ delivery_reminders: true, push_new_orders: true, push_flagged_orders: false, push_delivery_reminders: true, push_ready_to_buy: true }] : [];
+        const rows = table === "profiles" ? USERS : table === "notification_preferences" ? [{ push_enabled: true, delivery_reminders: true, low_stock_alerts: true }] : [];
         return (resolve: (value: unknown) => void) => setTimeout(() => resolve({ data: structuredClone(rows), error: null, count: 0 }), 80);
       }
       return () => chain;
@@ -48,8 +48,7 @@ function fakeQuery(table: string) {
 
 async function fakeRpc(name: string, args: Record<string, unknown>) {
   if (name === "get_account_locks") return { data: [{ user_id: "jun", locked_until: LOCKED_UNTIL }], error: null };
-  if (name === "set_my_notification_preferences") return { data: { delivery_reminders: args.p_delivery_reminders }, error: null };
-  if (name === "set_my_push_preference") return { data: { [`push_${String(args.p_category)}`]: args.p_on }, error: null };
+  if (name === "set_my_setting") return { data: { [String(args.p_key)]: args.p_on }, error: null };
   return { data: [], error: null };
 }
 
@@ -99,7 +98,7 @@ export default function SettingsPreview() {
     switch (preview) {
       case "users": return <UserManagementScreen />;
       case "settings": case "settings-purchasing": return <SettingsScreen />;
-      case "password": return <ChangePasswordScreen />;
+      case "password": return <SettingsScreen passwordOpen />;
       default: return <MoreScreen />;
     }
   })();

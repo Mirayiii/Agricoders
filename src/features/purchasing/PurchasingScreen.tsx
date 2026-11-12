@@ -3,22 +3,18 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "r
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 
-import { BottomSheet, Button, Card, EmptyState, ErrorState, Icon, LoadingState, PackItem, ProgressBar, SegmentedControl, StaleNotice, StatusBadge, useToast } from "@/components";
+import { Banner, BottomSheet, Button, Card, EmptyState, ErrorState, Icon, LoadingState, PackItem, ProgressBar, SegmentedControl, StaleNotice, StatusBadge, useToast } from "@/components";
 import { PERMISSIONS } from "@/constants/permissions";
 import { colors, radii, shadows, spacing, text } from "@/constants/theme";
-import { useAuth, usePermission } from "@/features/auth";
+import { usePermission } from "@/features/auth";
 import { DataError } from "@/services/data";
 import { NotQueuedError, useIsOnline, useOutbox, useQueuedChange } from "@/services/offline";
 import { customerName } from "@/utils/customer";
 import { DateRangeSheet } from "./DateRangeSheet";
-import { exportBuyList, useBuyList, useCancelPacking, useManilaToday, usePackingBoard, useSetBought, useSetItemPacked, useStartPacking } from "./purchasingData";
+import { exportBuyList, useBuyList, useCancelPacking, useManilaToday, usePackingBoard, useConfirmRemoval, useSetItemPacked, useStartPacking } from "./purchasingData";
 import {
-  buyProgress,
-  buySaveProblem,
   buySummary,
   focusRange,
-  isBought,
-  needMoreText,
   deliveryDay,
   formatAmount,
   horizonLabel,
@@ -34,6 +30,9 @@ import {
   type DateRange,
   type Horizon,
   type PackOrder,
+  isRepacking,
+  removalsToConfirm,
+  type PackRemoval,
 } from "./purchasingLogic";
 
 type Tab = "pack" | "buy";
@@ -56,8 +55,6 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const canPack = usePermission(PERMISSIONS.manageFulfillment);
-  // SI-02, PS-02: warehouse stock is for the administrator; the server sends it to no one else.
-  const showStock = useAuth().profile?.role === "administrator";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [horizon, setHorizon] = useState<Horizon>("immediate");
   const [custom, setCustom] = useState<DateRange | null>(null);
@@ -71,27 +68,7 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
   const board = usePackingBoard();
   const range = horizonQuery(horizon, today, custom);
   const buy = useBuyList(range.from, range.to);
-  const setBought = useSetBought(range.from, range.to);
   const label = horizonLabel(horizon, today, custom);
-
-  const online = useIsOnline();
-  // PU-01: ticks the server refused or could not get, by line, until tapped again.
-  const [unsaved, setUnsaved] = useState<Record<string, boolean>>({});
-  const lineKey = (item: BuyItem) => `${item.product_id}|${item.unit_key}`;
-  function toggleBought(item: BuyItem, bought: boolean) {
-    const key = lineKey(item);
-    setUnsaved((current) => ({ ...current, [key]: false }));
-    if (!online) {
-      setUnsaved((current) => ({ ...current, [key]: true }));
-      return;
-    }
-    setBought.mutate({ item, bought }, {
-      onError: (error) => {
-        setUnsaved((current) => ({ ...current, [key]: true }));
-        toast({ title: "Tick not saved", message: error instanceof DataError && error.code ? error.message : buySaveProblem(online), tone: "error" });
-      },
-    });
-  }
 
   // AS-02: a "Ready to buy" notification opens To buy on that order's day.
   // Applied once per notification tap, while rendering (React's pattern for
@@ -112,6 +89,7 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
   const startPacking = useStartPacking();
   const cancelPacking = useCancelPacking();
   const setPacked = useSetItemPacked();
+  const confirmRemoval = useConfirmRemoval();
 
   const { refetch: refetchBoard } = board;
   const { refetch: refetchBuy } = buy;
@@ -131,14 +109,25 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
   function tick(order: PackOrder, lineId: string, packed: boolean) {
     const line = order.order_items.find((item) => item.id === lineId);
     if (!line) return;
-    setPacked.mutate({ line, orderNumber: order.order_number, packed }, {
+    setPacked.mutate({ line, orderNumber: order.order_number, packingVersion: order.packing_version, packed }, {
       onSuccess: (result) => {
         if (!result.queued && result.status === "for_delivery") toast({ title: `${order.order_number} is packed`, message: "It has moved to For delivery." });
       },
       onError: (error) => {
         if (error instanceof NotQueuedError) return;
         toast({ title: "Couldn’t save the tick", message: problemText(error), tone: "error" });
+        void refetchBoard();
       },
+    });
+  }
+
+  function confirmRemoved(order: PackOrder, removal: PackRemoval) {
+    confirmRemoval.mutate({ removal, packingVersion: order.packing_version }, {
+      onSuccess: (result) => {
+        if (result.status === "for_delivery") toast({ title: `${order.order_number} is packed`, message: "It has moved to For delivery." });
+        else toast({ title: `${removal.description} taken out`, message: order.order_number });
+      },
+      onError: (error) => { toast({ title: "Couldn’t confirm the removed item", message: problemText(error), tone: "error" }); void refetchBoard(); },
     });
   }
 
@@ -165,7 +154,7 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
     if (!buy.data) return;
     setExporting(true);
     try {
-      const shared = await exportBuyList(buy.data, label, showStock);
+      const shared = await exportBuyList(buy.data, label);
       if (!shared) toast({ title: "Sharing isn’t available on this device", tone: "error" });
     } catch (error) {
       toast({ title: "Couldn’t make the PDF", message: problemText(error), tone: "error" });
@@ -205,6 +194,8 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
                     today={today}
                     canPack={canPack}
                     onTick={(lineId, packed) => tick(order, lineId, packed)}
+                    confirmingId={confirmRemoval.isPending ? confirmRemoval.variables?.removal.id ?? null : null}
+                    onConfirmRemoved={(removal) => confirmRemoved(order, removal)}
                     onCancel={() => setConfirmCancel(order)}
                   />
                 )) : <Text style={styles.empty}>Nothing is being packed. Start an order below.</Text>}
@@ -250,26 +241,20 @@ export function PurchasingScreen({ initialTab = "pack", openTab, focusOrderId }:
                 {buy.data.overdue_orders ? (
                   <Text style={styles.overdue}>Includes {buy.data.overdue_orders} late {buy.data.overdue_orders === 1 ? "order" : "orders"} not packed yet.</Text>
                 ) : null}
-                <BuyProgress done={buyProgress(buy.data).done} total={buyProgress(buy.data).total} share={buyProgress(buy.data).share} />
-                {canPack && !online ? <Text style={styles.overdue}>You’re offline. Ticking lines as bought needs a connection.</Text> : null}
                 <View style={styles.buyCard}>
                   {buy.data.items.map((item, index) => (
                     <BuyRow
                       key={`${item.product_id}|${item.unit_key}`}
                       item={item}
-                      showStock={showStock}
                       last={index === buy.data.items.length - 1}
-                      saving={setBought.isPending && setBought.variables && lineKey(setBought.variables.item) === lineKey(item) ? true : false}
-                      problem={unsaved[lineKey(item)] ? buySaveProblem(online) : null}
-                      onToggle={canPack ? (bought) => toggleBought(item, bought) : undefined}
                     />
                   ))}
                 </View>
                 <Button label="Export as PDF" icon="download" size="lg" loading={exporting} onPress={() => void exportPdf()} />
-                <Text style={styles.footnote}>Confirmed and packing orders only. Ticks are saved for each delivery day, so other date ranges and the administrator see the same bought amounts. If an order grows after a tick, the line shows how much more is needed.</Text>
+                <Text style={styles.footnote}>Orders for verification, confirmed and packing. What to buy is the total needed less the stock on hand.</Text>
               </>
             ) : (
-              <Card><EmptyState icon="basket-outline" title="Nothing to buy" description="No confirmed or packing orders are due in this range." /></Card>
+              <Card><EmptyState icon="basket-outline" title="Nothing to buy" description="No open orders are due in this range." /></Card>
             )}
           </>
         )}
@@ -303,8 +288,12 @@ function DeliveryLine({ order, today, items }: { order: PackOrder; today: string
   );
 }
 
-function PackingCard({ order, today, canPack, onTick, onCancel }: { order: PackOrder; today: string; canPack: boolean; onTick: (lineId: string, packed: boolean) => void; onCancel: () => void }) {
+function PackingCard({ order, today, canPack, onTick, onCancel, confirmingId, onConfirmRemoved }: {
+  order: PackOrder; today: string; canPack: boolean; onTick: (lineId: string, packed: boolean) => void; onCancel: () => void; confirmingId: string | null; onConfirmRemoved: (removal: PackRemoval) => void;
+}) {
   const online = useIsOnline();
+  const removals = removalsToConfirm(order);
+  const repacking = isRepacking(order);
   const done = packedCount(order);
   const total = order.order_items.length;
   const share = total ? done / total : 0;
@@ -315,8 +304,10 @@ function PackingCard({ order, today, canPack, onTick, onCancel }: { order: PackO
           <Text style={styles.customer}>{customerName(order.customers) ?? "Customer"}</Text>
           <DeliveryLine order={order} today={today} items={total} />
         </View>
+        {repacking ? <StatusBadge label="Repacking" tone="warning" /> : null}
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Pressable>
+      {repacking ? <Banner tone="warning" icon="alert-circle">This order was changed after it was packed. Check the unticked items; its delivery stays booked and goes ahead once packing is finished.</Banner> : null}
       <View style={styles.progress} accessible accessibilityLabel={`${done} of ${total} packed`}>
         <View style={styles.progressLabels}>
           <Text style={styles.progressText}>{done} of {total} packed</Text>
@@ -331,6 +322,7 @@ function PackingCard({ order, today, canPack, onTick, onCancel }: { order: PackO
               name={line.products?.product_name ?? "Product"}
               quantity={`${formatAmount(Number(line.quantity))} ${line.unit_of_measurement}`}
               note={line.notes}
+              noteChanged={Boolean(line.note_changed_at)}
               packed={line.preparation_status === "completed"}
               onToggle={canPack ? (packed) => onTick(line.id, packed) : undefined}
             />
@@ -338,8 +330,17 @@ function PackingCard({ order, today, canPack, onTick, onCancel }: { order: PackO
           </View>
         ))}
       </View>
+      {removals.map((removal) => (
+        <View key={removal.id} style={styles.removal}>
+          <Banner tone="warning" icon="remove-circle">
+            Removed from the order: {removal.description}, {formatAmount(Number(removal.quantity))} {removal.unit_of_measurement}. Take it out of the prepared order.
+          </Banner>
+          {canPack ? <Button label={online ? "Confirm item taken out" : "Confirm when online"} type="brandOutline" size="md" loading={confirmingId === removal.id} disabled={!online} onPress={() => onConfirmRemoved(removal)} /> : null}
+        </View>
+      ))}
       <Text style={styles.hint}>{canPack ? (online ? "Tap each item once it is packed." : "You’re offline. Ticks are saved on this phone and sent when you’re back online.") : "Packing is updated by purchasing staff."}</Text>
-      {canPack ? <Button label="Cancel packing" type="danger" size="lg" disabled={!online} onPress={onCancel} /> : null}
+      {/* A repack keeps its booked delivery, so it can't be stopped back to Confirmed (the server refuses too). */}
+      {canPack && !repacking ? <Button label="Cancel packing" type="danger" size="lg" disabled={!online} onPress={onCancel} /> : null}
     </View>
   );
 }
@@ -383,46 +384,21 @@ function QueuedTickNote({ lineId }: { lineId: string }) {
   );
 }
 
-function BuyProgress({ done, total, share }: { done: number; total: number; share: number }) {
+/** Figma Buy Row: product, "2 orders · 60 kg in stock", the total needed, and "Buy 3 kg more" in amber when short. */
+function BuyRow({ item, last }: { item: BuyItem; last: boolean }) {
+  const short = shortageText(item);
   return (
-    <View style={styles.progress} accessible accessibilityLabel={`${done} of ${total} bought`}>
-      <View style={styles.progressLabels}>
-        <Text style={styles.progressText}>{done} of {total} bought</Text>
-        <Text style={styles.progressText}>{Math.round(share * 100)}%</Text>
+    <View
+      style={[styles.buyRow, !last && styles.divider]}
+      accessible
+      accessibilityLabel={`${item.product_name}, ${formatAmount(item.quantity)} ${item.unit} needed. ${buySummary(item)}.${short ? ` ${short}.` : ""}`}
+    >
+      <View style={styles.flex}>
+        <Text style={styles.buyName}>{item.product_name}</Text>
+        <Text style={styles.meta}>{buySummary(item)}</Text>
+        {short ? <Text style={styles.short}>{short}</Text> : null}
       </View>
-      <ProgressBar value={share} />
-    </View>
-  );
-}
-
-/** PU-01: tick a line when it is bought. "Need 5 kg more" when demand went up after the tick. */
-function BuyRow({ item, last, showStock, saving, problem, onToggle }: { item: BuyItem; last: boolean; showStock: boolean; saving: boolean; problem: string | null; onToggle?: (bought: boolean) => void }) {
-  const bought = isBought(item);
-  const needMore = needMoreText(item);
-  const short = showStock ? shortageText(item) : null;
-  return (
-    <View style={[styles.buyRow, !last && styles.divider]}>
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityLabel={`${item.product_name}, ${formatAmount(item.quantity)} ${item.unit} needed. ${buySummary(item, showStock)}.${needMore ? ` ${needMore}.` : ""}${short ? ` ${short}.` : ""}`}
-        accessibilityState={{ checked: bought, disabled: !onToggle || saving, busy: saving }}
-        disabled={!onToggle || saving}
-        onPress={() => onToggle?.(!bought)}
-        style={styles.buyTick}
-      >
-        <View style={[styles.circle, bought ? styles.circleOn : styles.circleOff]}>
-          {bought ? <Icon name="check" size={16} color={colors.onBrand} /> : null}
-        </View>
-        <View style={styles.flex}>
-          <Text style={[styles.buyName, bought && styles.struck]}>{item.product_name}</Text>
-          <Text style={styles.meta}>{buySummary(item, showStock)}</Text>
-          {needMore ? <Text style={styles.short}>{needMore}</Text> : null}
-          {short ? <Text style={styles.meta}>{short}</Text> : null}
-          {saving ? <Text style={styles.meta}>Saving…</Text> : null}
-          {problem && !saving ? <Text style={styles.short} accessibilityRole="alert">{problem}</Text> : null}
-        </View>
-        <Text style={[styles.buyQty, bought && styles.boughtQty]}>{formatAmount(item.quantity)} {item.unit}</Text>
-      </Pressable>
+      <Text style={styles.buyQty}>{formatAmount(item.quantity)} {item.unit}</Text>
     </View>
   );
 }
@@ -453,23 +429,18 @@ const styles = StyleSheet.create({
   progressText: { ...text.captionStrong, color: colors.textSecondary },
   checklist: { borderTopWidth: 1, borderTopColor: colors.border },
   checkRow: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  removal: { gap: spacing.sm },
   hint: { ...text.caption, color: colors.textMuted, textAlign: "center" },
   address: { flexDirection: "row", alignItems: "center", gap: 6 },
   addressText: { ...text.caption, color: colors.textSecondary, flex: 1 },
   horizon: { ...text.caption, color: colors.textSecondary },
   overdue: { ...text.captionStrong, color: colors.warning },
-  buyCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, paddingHorizontal: spacing.xl, ...shadows.card },
-  buyRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: 12 },
+  buyCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, paddingHorizontal: spacing.lg, ...shadows.card },
+  buyRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: 12, paddingLeft: spacing.md },
   divider: { borderBottomWidth: 1, borderBottomColor: colors.border },
   buyName: { ...text.bodyStrong, color: colors.text },
   short: { ...text.captionStrong, color: colors.warning, marginTop: 2 },
   buyQty: { ...text.title, color: colors.text },
-  buyTick: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md },
-  circle: { width: 26, height: 26, borderRadius: radii.full, alignItems: "center", justifyContent: "center" },
-  circleOff: { backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.borderStrong },
-  circleOn: { backgroundColor: colors.primary },
-  struck: { textDecorationLine: "line-through", color: colors.textMuted },
-  boughtQty: { color: colors.textMuted },
   footnote: { ...text.caption, color: colors.textMuted, textAlign: "center" },
   sheetTitle: { ...text.title, color: colors.text },
   sheetBody: { ...text.body, color: colors.textSecondary },

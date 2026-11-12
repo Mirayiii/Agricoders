@@ -22,17 +22,16 @@ export const SOURCE_LABELS: Record<OrderSource, string> = {
 export const ORDER_FLOW: OrderStatus[] = ["for_verification", "confirmed", "for_preparation", "for_delivery", "completed"];
 export const ORDER_FLOW_LABELS = ["Verify", "Confirm", "Pack", "Deliver", "Done"];
 
-export type OrderFilter = "all" | "flagged" | OrderStatus;
+export type OrderFilter = "all" | OrderStatus;
 
 export const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
-  // Figma's chips first; Flagged and Cancelled follow (Home links to Flagged).
+  // Prototype chips. "To verify" is hidden while no order needs verifying.
   { key: "all", label: "All" },
   { key: "for_verification", label: "To verify" },
   { key: "confirmed", label: "Confirmed" },
   { key: "for_preparation", label: "Preparing" },
   { key: "for_delivery", label: "For delivery" },
   { key: "completed", label: "Completed" },
-  { key: "flagged", label: "Flagged" },
   { key: "cancelled", label: "Cancelled" },
 ];
 
@@ -63,6 +62,8 @@ export function describeActivity(action: string, details: Record<string, unknown
     case "created_by_duplication":
       return "Copied from a previous order";
     case "status_changed":
+      if (reason === "repack_required") return "Sent back to Packing after a change";
+      return (toStatus && STATUS_ACTIVITY[toStatus as OrderStatus]) ?? "Status updated";
     case "cancelled":
       return (toStatus && STATUS_ACTIVITY[toStatus as OrderStatus]) ?? "Status updated";
     case "requires_attention":
@@ -87,8 +88,20 @@ export function describeActivity(action: string, details: Record<string, unknown
       if (!to) return `SI# ${from ? `${from} ` : ""}removed${why}`;
       return from && from !== to ? `SI# changed from ${from} to ${to}${why}` : `SI# set to ${to}${why}`;
     }
-    case "order_edited":
-      return "Order edited";
+    case "order_edited": {
+      const count = (key: string) => (Array.isArray(details[key]) ? (details[key] as unknown[]).length : 0);
+      const parts = [
+        count("changed_lines") ? `${count("changed_lines")} changed` : "",
+        count("added_lines") ? `${count("added_lines")} added` : "",
+        count("removed_lines") ? `${count("removed_lines")} removed` : "",
+      ].filter(Boolean);
+      const items = parts.length ? ` · items ${parts.join(", ")}` : "";
+      return `Order edited${items}${details.repack_required ? " · repack needed" : ""}`;
+    }
+    case "removed_item_confirmed": {
+      const what = typeof details.description === "string" ? details.description : "Removed item";
+      return `${what} confirmed taken out of the packed order`;
+    }
     case "delivery_created":
       return "Delivery scheduled";
     case "delivery_rescheduled":

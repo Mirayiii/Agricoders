@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { router } from "expo-router";
 
 import { BottomSheet, Button, Card, EmptyState, ErrorState, FormInput, Icon, InlineAlert, LoadingState, Screen, SegmentedControl, StaleNotice, StatusBadge, Switch, useToast } from "@/components";
 import { PERMISSIONS } from "@/constants/permissions";
@@ -10,11 +11,11 @@ import { useIsOnline } from "@/services/offline";
 import { manilaToday } from "@/features/purchasing/purchasingLogic";
 import { formatMoney, relativeTime } from "@/utils/format";
 import {
-  problemText, useAdjustStock, usePriceHistory, useProduct, useProductUnits, useSetProductArchived, useSetProductPrice, useStockActivity, useUpdateProduct,
+  problemText, useAdjustStock, useDeleteProduct, usePriceHistory, useProduct, useProductUnits, useSetProductArchived, useSetProductPrice, useStockActivity, useUpdateProduct,
   type ProductChanges, type UnitRow,
 } from "../productsData";
 import {
-  MORE_UNITS, STOCK_META, cleanUnit, formatPercent, formatQty, marginAmount, marginPercent, marginPreview, marginTone, parsePrice, priceProblem, stockAfter,
+  MORE_UNITS, STOCK_META, STOCK_UNAVAILABLE, cleanUnit, formatPercent, formatQty, marginAmount, marginPercent, marginPreview, marginTone, parsePrice, priceProblem, stockAfter, stockUnknown,
   type ProductOverview, type StockMode,
 } from "../productsLogic";
 
@@ -29,11 +30,15 @@ export function ProductDetailScreen({ productId = "", initialTab = "details" }: 
   const canManage = usePermission(PERMISSIONS.manageProducts);
   const canPrice = usePermission(PERMISSIONS.managePricing);
   const canStock = usePermission(PERMISSIONS.manageInventory);
+  // Prototype: Delete product is for administrators and administrative staff (the server checks too).
+  const canDelete = usePermission(PERMISSIONS.manageOrders);
   const online = useIsOnline();
   const query = useProduct(productId);
   const [tab, setTab] = useState<ProductTab>(initialTab);
   const [confirming, setConfirming] = useState(false);
   const archive = useSetProductArchived();
+  const remove = useDeleteProduct();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const product = query.product;
   if (query.isPending) return <Screen title="Product" showBackButton><LoadingState message="Loading product..." /></Screen>;
@@ -66,6 +71,17 @@ export function ProductDetailScreen({ productId = "", initialTab = "details" }: 
     });
   }
 
+  function deleteProduct() {
+    remove.mutate({ productId: product!.id }, {
+      onSuccess: () => {
+        setConfirmingDelete(false);
+        toast(`${product!.product_name} deleted. Removed from products and stock.`);
+        if (router.canGoBack()) router.back();
+        else router.navigate("/products");
+      },
+    });
+  }
+
   return (
     <Screen title={product.product_name} showBackButton contentStyle={styles.content} refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
       <StaleNotice query={query} />
@@ -93,6 +109,22 @@ export function ProductDetailScreen({ productId = "", initialTab = "details" }: 
           onPress={() => { archive.reset(); setConfirming(true); }}
         />
       ) : null}
+      {archiveHere && canDelete ? (
+        <Button label="Delete product" type="danger" size="lg" icon="trash" disabled={!online} onPress={() => { remove.reset(); setConfirmingDelete(true); }} />
+      ) : null}
+
+      <BottomSheet visible={confirmingDelete} onClose={() => setConfirmingDelete(false)}>
+        <View style={styles.sheetHead}>
+          <View style={styles.sheetIcon}><Icon name="trash" size={20} color={colors.danger} /></View>
+          <View style={styles.flex}>
+            <Text style={styles.sheetTitle} accessibilityRole="header">Delete {product.product_name}?</Text>
+            <Text style={styles.sheetBody}>It will be removed from products, stock and new orders. Past orders keep their records. A deleted product can’t be restored.</Text>
+          </View>
+        </View>
+        {remove.isError ? <InlineAlert title="Not deleted" message={problemText(remove.error)} /> : null}
+        <Button label="Delete product" type="destructive" size="lg" loading={remove.isPending} onPress={deleteProduct} />
+        <Button label="Keep product" type="brandOutline" size="lg" onPress={() => setConfirmingDelete(false)} />
+      </BottomSheet>
 
       <BottomSheet visible={confirming} onClose={() => setConfirming(false)}>
         <View style={styles.sheetHead}>
@@ -141,6 +173,11 @@ function Hero({ product, showPrice }: { product: ProductOverview; showPrice: boo
             <StatusBadge label={meta.label} tone={meta.tone} />
             <Text style={styles.caption}>{formatQty(product.stock_quantity ?? 0)} {product.unit} in stock</Text>
           </View>
+        ) : stockUnknown(product) ? (
+          <View style={styles.heroStock}>
+            <StatusBadge label={STOCK_UNAVAILABLE.label} tone={STOCK_UNAVAILABLE.tone} />
+            <Text style={styles.caption}>No stock count yet</Text>
+          </View>
         ) : null}
       </View>
     </Card>
@@ -179,13 +216,13 @@ function DetailsTab({ product, canManage, canPrice, offline }: { product: Produc
       <Card style={styles.toggleCard}>
         <View style={styles.flex}>
           <Text style={styles.cardTitle}>Track inventory (stock)</Text>
-          <Text style={styles.caption}>{product.track_stock ? "Stock tracking enabled (inventory held)" : "Not tracked: no stock count is kept"}</Text>
+          <Text style={styles.caption}>{product.track_stock ? "Stock tracking enabled (inventory held)" : "Not tracked: no stock count is kept. Turning this on starts each unit at 0 until you count it."}</Text>
         </View>
         <Switch
           value={product.track_stock}
           disabled={!canManage || offline || update.isPending}
           accessibilityLabel="Track inventory"
-          onChange={(value) => change({ track_stock: value }, value ? "Stock tracking on. Count the stock on the Stock tab." : "Stock tracking off. The last count is kept.")}
+          onChange={(value) => change({ track_stock: value }, value ? "Stock tracking on. Each unit starts at 0: add your count on the Stock tab." : "Stock tracking off. The last count is kept.")}
         />
       </Card>
 
@@ -241,7 +278,7 @@ function DetailsTab({ product, canManage, canPrice, offline }: { product: Produc
           return (
             <Pressable key={kind} disabled={!canManage || offline} accessibilityRole="button" accessibilityLabel={`${kind === "buying" ? "Buying" : "Selling"} SKU ${code ?? "not set"}`} onPress={() => { update.reset(); setEditingSkus(true); }} style={styles.skuRow}>
               <View style={styles.skuCode}><Text style={[styles.unitName, !code && styles.muted]}>{code ?? "Not set"}</Text></View>
-              <StatusBadge label={kind === "buying" ? "Buying" : "Selling"} tone="neutral" />
+              <View><StatusBadge label={kind === "buying" ? "Buying" : "Selling"} tone="neutral" /></View>
             </Pressable>
           );
         })}
@@ -477,7 +514,8 @@ function StockTab({ product, canManage, editable }: { product: ProductOverview; 
   const [threshold, setThreshold] = useState("");
   const [reason, setReason] = useState("");
   const quantity = product.stock_quantity ?? 0;
-  const meta = product.stock_status ? STOCK_META[product.stock_status] : null;
+  const unknown = stockUnknown(product);
+  const meta = product.stock_status ? STOCK_META[product.stock_status] : unknown ? STOCK_UNAVAILABLE : null;
   const after = stockAfter(quantity, mode, amount);
   const amountValue = Number(amount || 0);
   const thresholdValue = threshold.trim() === "" ? null : Number(threshold);
@@ -504,7 +542,14 @@ function StockTab({ product, canManage, editable }: { product: ProductOverview; 
           {product.selling_sku || product.buying_sku ? <View style={styles.codePill}><Text style={styles.codePillText}>{product.selling_sku ?? product.buying_sku} · {product.unit}</Text></View> : null}
           {meta ? <StatusBadge label={meta.label} tone={meta.tone} /> : null}
         </View>
-        <Text style={[styles.stockBig, { color: product.stock_status === "available" ? colors.text : colors.danger }]}>{formatQty(quantity)} <Text style={styles.perUnit}>{product.unit} available</Text></Text>
+        {unknown ? (
+          <>
+            <Text style={styles.stockBig}>No stock count yet</Text>
+            <Text style={styles.caption}>This unit has no stock record, so its stock is unknown, not 0. It can still be ordered. Add the stock you have below to start counting.</Text>
+          </>
+        ) : (
+          <Text style={[styles.stockBig, { color: product.stock_status === "available" ? colors.text : colors.danger }]}>{formatQty(quantity)} <Text style={styles.perUnit}>{product.unit} available</Text></Text>
+        )}
         <View style={styles.alertNote}>
           <Icon name="alert-circle" size={14} color={colors.textSecondary} />
           <Text style={styles.caption}>{product.low_stock_threshold === null ? "No low-stock alert set" : `Low-stock alert at ${formatQty(product.low_stock_threshold)} ${product.unit}`}</Text>

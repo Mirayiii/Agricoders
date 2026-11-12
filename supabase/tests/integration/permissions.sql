@@ -39,21 +39,21 @@ insert into expected values
   -- Delivery staff may also issue the receipt, but only for their own stop (phase6 tests); with no stop they are refused.
   ('reorder_route', '{admin,office}'), ('issue_delivery_receipt', '{admin,office}'),
   ('create_order', '{admin,office}'), ('offline_create_order', '{admin,office}'), ('offline_confirm_order', '{admin,office}'),
-  -- Requirements PS-01 to PS-03, RE-05 and CU-01: products, prices, stock and customer archive are administrator-only.
-  ('create_product', '{admin}'), ('update_product', '{admin}'), ('set_product_archived', '{admin}'),
-  ('set_product_price', '{admin}'), ('batch_update_prices', '{admin}'), ('adjust_inventory', '{admin}'),
-  ('save_customer', '{admin,office}'), ('set_customer_archived', '{admin}'),
-  ('get_customers', '{admin,office}'), ('get_customer_profile', '{admin,office}'), ('get_price_history', '{admin}'), ('get_batch_price_sheet', '{admin}'),
+  -- Prototype (5 Nov): products and stock for admin, office and purchasing; prices and customer archive for admin and office.
+  ('create_product', '{admin,office,packer}'), ('update_product', '{admin,office,packer}'), ('set_product_archived', '{admin,office,packer}'),
+  ('set_product_price', '{admin,office}'), ('batch_update_prices', '{admin,office}'), ('adjust_inventory', '{admin,office,packer}'),
+  ('save_customer', '{admin,office}'), ('set_customer_archived', '{admin,office}'),
+  ('get_customers', '{admin,office}'), ('get_customer_profile', '{admin,office}'), ('get_price_history', '{admin,office}'), ('get_batch_price_sheet', '{admin,office}'),
   ('start_packing', '{admin,office,packer}'), ('cancel_packing', '{admin,office,packer}'), ('set_item_packed', '{admin,office,packer}'),
   ('offline_set_item_packed', '{admin,office,packer}'),
   -- Requirement PU-01 and SI-02: To Buy is for purchasing staff and the administrator.
   ('get_buy_list', '{admin,packer}'), ('set_buy_list_bought', '{admin,packer}'), ('get_purchasing_today', '{admin,packer}'),
   ('get_usual_quantities', '{admin,office}'),
-  -- Requirement DE-04: delivery staff (their own stops) and the administrator.
-  ('complete_delivery', '{admin,driver}'), ('offline_complete_delivery', '{admin,driver}'),
-  -- Requirements SI-02 and PS-02: stock monitoring is the administrator's.
+  -- Prototype (5 Nov): the administrator, the office and delivery staff (their own stops).
+  ('complete_delivery', '{admin,office,driver}'), ('offline_complete_delivery', '{admin,office,driver}'),
+  -- Products & stock list: admin, office and purchasing (prototype, 5 Nov).
   -- (get_inventory_list and get_inventory_activity return nothing to others; phase8 tests.)
-  ('get_products_overview', '{admin}'),
+  ('get_products_overview', '{admin,office,packer}'),
   ('set_my_notification_preferences', '{admin,office,packer,driver}'),
   ('generate_upcoming_notifications', '{admin,office,packer,driver}'),
   ('get_sales_report', '{admin}'), ('get_order_report', '{admin}'), ('get_customer_report', '{admin}'), ('get_delivery_report', '{admin}'),

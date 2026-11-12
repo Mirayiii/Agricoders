@@ -5,20 +5,16 @@ import { router } from "expo-router";
 
 import { Button, Card, EmptyState, ErrorState, Icon, LoadingState, useToast } from "@/components";
 import { colors, radii, spacing, text } from "@/constants/theme";
-import { useAuth } from "@/features/auth";
 import { downloadPdf, printPdf, sharePdf } from "@/services/pdf";
-import { useIssueReceipt, useReceipt } from "../deliveriesData";
-import { VOID_LABEL, canIssueReceipt, isVoidReceipt, receiptFileName, receiptHtml, receiptNumber } from "../deliveriesLogic";
+import { useReceipt } from "../deliveriesData";
+import { VOID_LABEL, isVoidReceipt, receiptFileName, receiptHtml, receiptNumber } from "../deliveriesLogic";
 import { ReceiptPreview } from "./ReceiptPreview";
 
 /** Figma "Delivery Receipt · PDF viewer": preview, Share, Download PDF and Print. */
 export function ReceiptScreen({ orderId, orderStatus }: { orderId: string; orderStatus?: string }) {
   const insets = useSafeAreaInsets();
   const toast = useToast();
-  const role = useAuth().profile?.role;
-  const canIssue = canIssueReceipt(role);
   const receipt = useReceipt(orderId);
-  const issue = useIssueReceipt();
   const [busy, setBusy] = useState<"share" | "download" | "print" | null>(null);
 
   async function run(kind: "share" | "download" | "print") {
@@ -49,7 +45,7 @@ export function ReceiptScreen({ orderId, orderStatus }: { orderId: string; order
         </Pressable>
         <View style={styles.flex}>
           <Text style={styles.title} accessibilityRole="header">Delivery receipt</Text>
-          {data ? <Text style={styles.subtitle}>DR No. {receiptNumber(data)} · {data.order_number}{isVoidReceipt(data) ? " · VOID" : ""}</Text> : null}
+          {data ? <Text style={styles.subtitle}>DR No. {receiptNumber(data)}{data.order_number === data.dr_label ? "" : ` · ${data.order_number}`}{isVoidReceipt(data) ? " · VOID" : ""}</Text> : null}
         </View>
         {data ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Download PDF" onPress={() => void run("download")} style={styles.round}>
@@ -73,19 +69,7 @@ export function ReceiptScreen({ orderId, orderStatus }: { orderId: string; order
           </>
         ) : (
           <Card>
-            <EmptyState icon="document-text-outline" title="No receipt yet" description={orderStatus === "cancelled" ? "This order was cancelled before a receipt was issued, so there is none." : canIssue ? "Issue the delivery receipt to print it or send it to the customer. Its DR number never changes." : "The receipt can be issued once the order is confirmed."} />
-            {canIssue && orderStatus !== "cancelled" ? (
-              <Button
-                label="Issue delivery receipt"
-                icon="file-text"
-                size="lg"
-                loading={issue.isPending}
-                onPress={() => issue.mutate(orderId, {
-                  onSuccess: (result) => toast({ title: `Receipt ${result.dr_label} issued` }),
-                  onError: (error) => toast({ title: "Couldn’t issue the receipt", message: error instanceof Error ? error.message : undefined, tone: "error" }),
-                })}
-              />
-            ) : null}
+            <EmptyState icon="document-text-outline" title="No receipt yet" description={orderStatus === "cancelled" ? "This order was cancelled before it was confirmed, so it has no receipt." : "The receipt is ready as soon as the order is confirmed. Its DR number is the order number."} />
           </Card>
         )}
       </ScrollView>

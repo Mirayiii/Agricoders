@@ -65,6 +65,7 @@ let failSave = false;
 async function fakeRpc(name: string) {
   await new Promise((resolve) => setTimeout(resolve, 200));
   if (name === "get_product_inventory_availability") return { data: STOCK, error: null };
+  if (name === "get_out_of_stock_units") return { data: STOCK.filter((row) => row.status === "out_of_stock").map(({ product_id, sku_id }) => ({ product_id, sku_id, unit: "kg" })), error: null };
   if (name === "create_order") {
     if (failSave) return { data: null, error: { message: "The discount cannot be more than the subtotal of 145.00", code: "P0001", details: "", hint: "" } };
     return { data: { order_id: "o1", order_number: "ORD-1049", status: "for_verification", subtotal: 145, discount_amount: 0, total: 145 }, error: null };

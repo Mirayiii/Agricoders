@@ -35,12 +35,12 @@ create temp table seen as select id, updated_at from public.orders;
 grant select on seen to authenticated;
 
 -- Packing a legacy order that was half packed before the upgrade.
-select pg_temp.ok(pg_temp.code(:packer, format($q$select public.offline_set_item_packed(%L, true, gen_random_uuid(), %L)$q$,
+select pg_temp.ok(pg_temp.code(:packer, format($q$select public.offline_set_item_packed(%1$L, true, gen_random_uuid(), tests.with_pv_item(%1$L, %2$L))$q$,
   (select id from public.order_items where order_id = '55555555-0000-0000-0000-000000000006' and preparation_status = 'pending'),
   pg_temp.off('{"packed":false,"quantity":1,"unit":"head"}'))) is null, 'legacy: packing staff tick the last line of a half-packed legacy order');
 select pg_temp.ok((select status = 'for_delivery' from public.orders where id = '55555555-0000-0000-0000-000000000006'), 'legacy: the order moves to For delivery when every line is packed');
 select pg_temp.ok(pg_temp.code(:office, $q$select public.create_delivery('55555555-0000-0000-0000-000000000006', current_date + 1, null, '11111111-0000-0000-0000-000000000004', null)$q$) is null, 'legacy: office staff schedule it for a legacy driver');
-select pg_temp.ok(pg_temp.code(:driver, format($q$select public.offline_complete_delivery(%L, 'Maria Santos', gen_random_uuid(), %L)$q$,
+select pg_temp.ok(pg_temp.code(:driver, format($q$select public.offline_complete_delivery(%1$L, 'Maria Santos', gen_random_uuid(), tests.with_pv_delivery(%1$L, %2$L))$q$,
   (select id from public.deliveries where order_id = '55555555-0000-0000-0000-000000000006'),
   pg_temp.off(jsonb_build_object('scheduled_date', current_date + 1, 'order_updated_at', (select updated_at from public.orders where id = '55555555-0000-0000-0000-000000000006'))))) is null,
   'legacy: the driver marks it delivered (queued offline, then sent)');
@@ -48,7 +48,7 @@ select pg_temp.ok((select o.status = 'completed' and d.status = 'completed' and 
 select pg_temp.ok((select round((r.content->>'total')::numeric, 2) = s.total from public.delivery_receipts r join upgrade_check.totals s on s.id = r.order_id where r.order_id = '55555555-0000-0000-0000-000000000006'), 'legacy: its receipt total equals the total before the upgrade');
 
 -- A delivery scheduled before the upgrade.
-select pg_temp.ok(pg_temp.code(:driver, format($q$select public.offline_complete_delivery('66666666-0000-0000-0000-000000000002', 'Store guard', gen_random_uuid(), %L)$q$,
+select pg_temp.ok(pg_temp.code(:driver, format($q$select public.offline_complete_delivery('66666666-0000-0000-0000-000000000002', 'Store guard', gen_random_uuid(), tests.with_pv_delivery('66666666-0000-0000-0000-000000000002', %L))$q$,
   pg_temp.off(jsonb_build_object('scheduled_date', current_date)))) is null, 'legacy: a delivery scheduled before the upgrade can be marked delivered');
 select pg_temp.ok((select round((r.content->>'total')::numeric, 2) = s.total from public.delivery_receipts r join upgrade_check.totals s on s.id = r.order_id where r.order_id = '55555555-0000-0000-0000-000000000002'), 'legacy: that receipt keeps the old total (0.5 crate and 3 heads)');
 

@@ -68,14 +68,11 @@ function CustomerForm({ customer, onSaved, onClose }: { customer: Editable | nul
         </View>
       </View>
       <FormInput label="Brand name" value={draft.brand_name} onChangeText={field("brand_name")} placeholder="Optional" autoCapitalize="words" maxLength={160} />
-      <FormInput label="Business type" value={draft.business_type} onChangeText={field("business_type")} placeholder="Optional (e.g. Restaurant, Hotel, Grocery)" autoCapitalize="words" maxLength={80} />
       <FormInput label="TIN#" value={draft.tin} onChangeText={field("tin")} placeholder="Optional (e.g. 123-456-789-000)" keyboardType="numbers-and-punctuation" autoCapitalize="none" maxLength={40} />
       <FormInput label="Contact person" value={draft.contact_person} onChangeText={field("contact_person")} placeholder="e.g. Mark Reyes" autoCapitalize="words" maxLength={120} />
       <FormInput label="Phone" value={draft.phone} onChangeText={field("phone")} placeholder="Optional (e.g. 0917 555 0142)" keyboardType="phone-pad" maxLength={40} />
       <FormInput label="Email" value={draft.email} onChangeText={field("email")} placeholder="Optional (e.g. orders@customer.ph)" keyboardType="email-address" autoCapitalize="none" maxLength={160} />
       <FormInput label="Delivery address" value={draft.delivery_address} onChangeText={field("delivery_address")} placeholder="Street, Barangay, City" maxLength={300} />
-      <FormInput label="Preferred delivery window" value={draft.preferred_delivery_window} onChangeText={field("preferred_delivery_window")} placeholder="Optional (e.g. 6:00 to 9:00 AM, weekdays)" maxLength={120} />
-      <FormInput label="Notes" value={draft.notes} onChangeText={field("notes")} placeholder="Optional" multiline maxLength={500} />
       {save.isError ? <InlineAlert title="Not saved" message={problemText(save.error)} /> : null}
       <Button label={editing ? "Save changes" : "Add customer"} size="lg" onPress={submit} disabled={!canSave} loading={save.isPending} />
       {editing ? <Button label="Cancel" type="muted" size="lg" onPress={onClose} /> : null}
@@ -89,6 +86,6 @@ const styles = StyleSheet.create({
   subtitle: { ...text.caption, color: colors.textSecondary, marginTop: 2 },
   close: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   row: { flexDirection: "row", gap: spacing.sm },
-  code: { width: 120 },
+  code: { width: 130 },
   flex: { flex: 1, minWidth: 0 },
 });

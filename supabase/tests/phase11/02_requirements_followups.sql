@@ -60,10 +60,10 @@ insert into public.inventory (sku_id, current_quantity) values ('00000000-0000-0
 update public.products set track_stock = true where id = '00000000-0000-0000-0000-00000000b212';
 
 -- ===========================================================================
--- SI-02 / PS-02: office places orders without seeing stock
+-- Prototype (5 Nov): office sees the New order stock tag again
 -- ===========================================================================
-select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000021c1', $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array['00000000-0000-0000-0000-00000000b212'::uuid])$q$))::int = 0,
-  'administrative staff get no stock availability (the New order tag is gone)');
+select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000021c1', $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array['00000000-0000-0000-0000-00000000b212'::uuid])$q$))::int = 1,
+  'administrative staff get stock availability for the New order tag');
 select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000021a1', $q$select to_jsonb(count(*)) from public.get_product_inventory_availability(array['00000000-0000-0000-0000-00000000b212'::uuid])$q$))::int = 1,
   'the administrator still gets it');
 -- Track inventory off (Jac, 4 Nov): no stock tag at all, even for the administrator.
@@ -111,8 +111,8 @@ select pg_temp.ok((pg_temp.run('00000000-0000-0000-0000-0000000021f1', $q$select
 -- Push switch: saved per person, and the in-app notification does not depend on it.
 insert into t values ('push_off', to_jsonb(pg_temp.err('00000000-0000-0000-0000-0000000021f1', $q$select public.set_my_push_preference('ready_to_buy', false)$q$)));
 select pg_temp.ok((select value is null from t where name = 'push_off')
-  and not public.wants_push('00000000-0000-0000-0000-0000000021f1', 'ready_to_buy')
-  and public.wants_push('00000000-0000-0000-0000-0000000021f2', 'ready_to_buy'), 'a purchasing staff member turns off "Ready to buy" pushes; a colleague keeps them');
+  and public.wants_push('00000000-0000-0000-0000-0000000021f1', 'ready_to_buy')
+  and public.wants_push('00000000-0000-0000-0000-0000000021f2', 'ready_to_buy'), 'an old app can still save the hidden "Ready to buy" choice, but only the Push notifications switch decides now (202611050007)');
 select pg_temp.ok(pg_temp.err('00000000-0000-0000-0000-0000000021c1', $q$select public.set_my_push_preference('ready_to_buy', false)$q$) = 'That switch is not available for your role',
   'office staff have no "Ready to buy" switch');
 insert into public.orders (id, customer_id, order_source, encoded_by, status, requested_delivery_date) values

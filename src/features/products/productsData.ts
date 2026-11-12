@@ -127,6 +127,21 @@ export function useSetProductArchived() {
   );
 }
 
+/**
+ * Prototype B5: delete a product (administrators and administrative staff).
+ * The row stays for past orders and reports; it leaves Products & stock and
+ * can't be restored. Online only.
+ */
+export function useDeleteProduct() {
+  const once = useOnce();
+  return useAppMutation(
+    (args: { productId: string }) =>
+      once(`delete:${args.productId}`, (id) =>
+        mutate<{ product_id: string; product_name: string; deleted: boolean }>("delete_product", { p_product_id: args.productId }, id)),
+    AFFECTED,
+  );
+}
+
 export function useSetProductPrice() {
   const once = useOnce();
   return useAppMutation(

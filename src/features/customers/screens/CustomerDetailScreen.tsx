@@ -28,7 +28,7 @@ export function CustomerDetailScreen({ customerId = "" }: { customerId?: string 
   const canOrder = usePermission(PERMISSIONS.manageOrders);
   // The Customer statement row opens the statement, which is administrator-only.
   const canBill = usePermission(PERMISSIONS.viewReports);
-  // Requirement CU-01: only the administrator archives (and restores) customers.
+  // Prototype: administrators and administrative staff archive and restore customers.
   const canArchive = usePermission(PERMISSIONS.archiveCustomers);
   const profile = useCustomerProfile(customerId);
   const [editing, setEditing] = useState(false);
@@ -101,14 +101,11 @@ export function CustomerDetailScreen({ customerId = "" }: { customerId?: string 
         </View>
         <Info label="Business name" value={customer.business_name} />
         <Info label="Brand name" value={customer.brand_name} />
-        <Info label="Business type" value={customer.business_type ?? null} />
         <Info label="TIN#" value={customer.tin} />
         <Info label="Contact person" value={customer.contact_person} />
         <Info label="Phone" value={customer.phone} />
         <Info label="Email" value={customer.email} />
         <Info label="Delivery address" value={customer.delivery_address} />
-        <Info label="Preferred delivery window" value={customer.preferred_delivery_window ?? null} />
-        {customer.notes ? <Info label="Notes" value={customer.notes} /> : null}
       </Card>
 
       {canBill ? (

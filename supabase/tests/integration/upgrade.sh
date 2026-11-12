@@ -21,6 +21,7 @@ for f in supabase/migrations/*.sql; do
   [[ "$(basename "$f")" > "202611" ]] && run "$f"
 done
 for f in supabase/go-live/phase1/0[1-9]*.sql; do run "$f"; done
+run supabase/tests/test_helpers.sql
 out=$(psql -X -d "$DB" -f supabase/tests/integration/upgrade_checks.sql 2>&1; psql -X -d "$DB" -f supabase/tests/integration/upgrade_workflow.sql 2>&1)
 echo "$out" | grep -E "PASS|FAIL|ERROR" | sed -e 's/^psql:[^ ]* //' -e 's/^NOTICE:  //'
 if command -v node >/dev/null; then

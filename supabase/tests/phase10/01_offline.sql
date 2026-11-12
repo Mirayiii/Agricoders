@@ -105,48 +105,48 @@ grant all on t to authenticated;
 -- ---------------------------------------------------------------------------
 -- Mark delivered
 -- ---------------------------------------------------------------------------
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000001', %L)$q$,
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000001', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d1', %L))$q$,
   pg_temp.off(31, jsonb_build_object('scheduled_date', current_date)))) like 'OFEXP %more than 30 days ago%', 'a change queued more than 30 days ago is refused, not replayed');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d4', 'Mark', '10000000-0000-4000-8000-000000000002', %L)$q$,
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d4', 'Mark', '10000000-0000-4000-8000-000000000002', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d4', %L))$q$,
   pg_temp.off(0))) = 'OFCON This stop was reassigned to Jun Villanueva, so it was not marked delivered.', 'a stop reassigned to another driver is refused with the reason');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000003', %L)$q$,
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000003', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d1', %L))$q$,
   pg_temp.off(0, jsonb_build_object('scheduled_date', current_date - 1)))) like 'OFCON This stop was moved to %', 'a rescheduled stop is refused');
 update public.orders set notes = 'Changed by the office' where id = '00000000-0000-0000-0000-000000000ae5';
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d5', 'Mark', '10000000-0000-4000-8000-000000000004', %L)$q$,
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d5', 'Mark', '10000000-0000-4000-8000-000000000004', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d5', %L))$q$,
   pg_temp.off(0, jsonb_build_object('scheduled_date', current_date, 'order_updated_at', now() - interval '1 hour')))) like 'OFCON The order was changed after your list was last updated%', 'an order changed after the driver last saw it is refused, not overwritten');
 select pg_temp.ok((select status = 'scheduled' from public.deliveries where id = '00000000-0000-0000-0000-0000000001d5'), 'a refused change leaves the stop as it was');
 
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$insert into t select 'd1', public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000005', %L)$q$,
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$insert into t select 'd1', public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000005', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d1', %L))$q$,
   pg_temp.off(29, jsonb_build_object('scheduled_date', current_date, 'order_updated_at', (select at from seen where name = 'e1'))))) is null, 'runs: a 29-day-old queued delivery is sent');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$insert into t select 'd1 again', public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000005', %L)$q$,
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$insert into t select 'd1 again', public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Mark', '10000000-0000-4000-8000-000000000005', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d1', %L))$q$,
   pg_temp.off(29, jsonb_build_object('scheduled_date', current_date, 'order_updated_at', (select at from seen where name = 'e1'))))) is null, 'runs: the same queued delivery is sent again');
 select pg_temp.ok((select status = 'completed' and received_by = 'Mark' from public.deliveries where id = '00000000-0000-0000-0000-0000000001d1')
   and (select value->>'replayed' = 'true' and value->>'delivery_id' = '00000000-0000-0000-0000-0000000001d1' from t where name = 'd1 again')
   and (select count(*) from public.order_activity where order_id = '00000000-0000-0000-0000-000000000ae1' and details->>'to_status' = 'completed' and action = 'delivery_status_changed') = 1,
   'a duplicate replay returns the first result and changes nothing again');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Someone else', '10000000-0000-4000-8000-000000000005', %L)$q$, pg_temp.off(0))) like '% request_id_reused', 'the same request id with different details is refused');
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d1', 'Someone else', '10000000-0000-4000-8000-000000000005', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d1', %L))$q$, pg_temp.off(0))) like '% request_id_reused', 'the same request id with different details is refused');
 
 -- Deactivated: queued actions are refused on sync.
 update public.profiles set status = 'inactive' where id = '00000000-0000-0000-0000-000000000ad2';
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad2', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d4', null, '10000000-0000-4000-8000-000000000006', %L)$q$, pg_temp.off(0))) like '42501 %', 'a deactivated driver''s queued delivery is refused as a permission error');
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad2', format($q$select public.offline_complete_delivery('00000000-0000-0000-0000-0000000001d4', null, '10000000-0000-4000-8000-000000000006', tests.with_pv_delivery('00000000-0000-0000-0000-0000000001d4', %L))$q$, pg_temp.off(0))) like '42501 %', 'a deactivated driver''s queued delivery is refused as a permission error');
 update public.profiles set status = 'active' where id = '00000000-0000-0000-0000-000000000ad2';
 
 -- ---------------------------------------------------------------------------
 -- Tick packed
 -- ---------------------------------------------------------------------------
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af1', $q$insert into t select 'p1', public.offline_set_item_packed('00000000-0000-0000-0000-0000000001e2', true, '20000000-0000-4000-8000-000000000001', pg_temp.off(1, '{"packed":false,"quantity":3,"unit":"kg"}'))$q$) is null, 'runs: a queued tick is sent');
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af1', $q$insert into t select 'p1', public.offline_set_item_packed('00000000-0000-0000-0000-0000000001e2', true, '20000000-0000-4000-8000-000000000001', tests.with_pv_item('00000000-0000-0000-0000-0000000001e2', pg_temp.off(1, '{"packed":false,"quantity":3,"unit":"kg"}')))$q$) is null, 'runs: a queued tick is sent');
 select pg_temp.ok((select preparation_status = 'completed' and prepared_by = '00000000-0000-0000-0000-000000000af1' from public.order_items where id = '00000000-0000-0000-0000-0000000001e2'), 'the line is packed by the person who ticked it');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af1', $q$insert into t select 'p1 again', public.offline_set_item_packed('00000000-0000-0000-0000-0000000001e2', true, '20000000-0000-4000-8000-000000000001', pg_temp.off(1, '{"packed":false,"quantity":3,"unit":"kg"}'))$q$) is null, 'runs: the same tick is sent again');
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af1', $q$insert into t select 'p1 again', public.offline_set_item_packed('00000000-0000-0000-0000-0000000001e2', true, '20000000-0000-4000-8000-000000000001', tests.with_pv_item('00000000-0000-0000-0000-0000000001e2', pg_temp.off(1, '{"packed":false,"quantity":3,"unit":"kg"}')))$q$) is null, 'runs: the same tick is sent again');
 select pg_temp.ok((select value->>'replayed' = 'true' from t where name = 'p1 again'), 'a duplicate tick returns the first result');
 -- Nina saw the line unticked and queued "untick"? No: she saw it unpacked and Carlo ticked it since. Her queued untick must not undo his newer tick.
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af2', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000001e2', false, '20000000-0000-4000-8000-000000000002', pg_temp.off(0, '{"packed":false,"quantity":3,"unit":"kg"}'))$q$)
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af2', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000001e2', false, '20000000-0000-4000-8000-000000000002', tests.with_pv_item('00000000-0000-0000-0000-0000000001e2', pg_temp.off(0, '{"packed":false,"quantity":3,"unit":"kg"}')))$q$)
   = 'OFCON Tomatoes was ticked packed by Carlo Diaz after your list was last updated, so your change was not applied.', 'a queued change never undoes someone else''s newer change');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af2', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000002e2', true, '20000000-0000-4000-8000-000000000003', pg_temp.off(0, '{"packed":false,"quantity":2,"unit":"kg"}'))$q$)
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af2', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000002e2', true, '20000000-0000-4000-8000-000000000003', tests.with_pv_item('00000000-0000-0000-0000-0000000002e2', pg_temp.off(0, '{"packed":false,"quantity":2,"unit":"kg"}')))$q$)
   = 'OFCON Carrots changed to 4 kg after your list was last updated. Check it before packing.', 'a line whose quantity changed is refused for review');
 delete from public.order_items where id = '00000000-0000-0000-0000-0000000003e2';
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af2', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000003e2', true, '20000000-0000-4000-8000-000000000004', pg_temp.off(0, '{"packed":false,"quantity":1,"unit":"kg"}'))$q$)
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000af2', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000003e2', true, '20000000-0000-4000-8000-000000000004', tests.with_pv_item('00000000-0000-0000-0000-0000000003e2', pg_temp.off(0, '{"packed":false,"quantity":1,"unit":"kg"}')))$q$)
   like 'OFCON This item was removed from the order%', 'a removed line is refused');
-select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000002e2', true, '20000000-0000-4000-8000-000000000005', pg_temp.off(0))$q$) like '42501 %', 'delivery staff cannot pack');
+select pg_temp.ok(pg_temp.code('00000000-0000-0000-0000-000000000ad1', $q$select public.offline_set_item_packed('00000000-0000-0000-0000-0000000002e2', true, '20000000-0000-4000-8000-000000000005', tests.with_pv_item('00000000-0000-0000-0000-0000000002e2', pg_temp.off(0)))$q$) like '42501 %', 'delivery staff cannot pack');
 
 -- ---------------------------------------------------------------------------
 -- Confirm order

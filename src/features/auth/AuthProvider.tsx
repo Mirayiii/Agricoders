@@ -6,6 +6,7 @@ import { sessionStorage } from "../../../lib/sessionStorage";
 import { isSupabaseConfigured, supabase } from "@/services/supabase";
 import type { AuthState, Profile, ProfileRole } from "@/types/auth";
 import { activePreviewRole, previewedProfile, type RolePreview } from "./rolePreview";
+import { clearNewOrderDraft } from "@/features/orders/new/newOrderDraft";
 import {
   type AuthMessage,
   callAccountFunction,
@@ -150,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     setRolePreview(null);
+    clearNewOrderDraft();
     forgetPassword();
     setWelcomePending(false);
     await supabase.auth.signOut({ scope: "local" });

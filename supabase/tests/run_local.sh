@@ -16,6 +16,7 @@ for f in supabase/migrations/*.sql; do
   fix "$f" | psql -q -v ON_ERROR_STOP=1 -d "$DB" >/dev/null
 done
 for f in supabase/go-live/phase1/*.sql; do [ -e "$f" ] && run "$f"; done
+run supabase/tests/test_helpers.sql
 status=0
 # Integration review: whole workflows and the permission matrix on the same
 # database, then the upgrade of a database that already has data.

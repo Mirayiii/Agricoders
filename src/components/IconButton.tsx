@@ -2,14 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 
-import { colors, radii, touch } from "@/constants/theme";
+import { colors, radii, shadows, touch } from "@/constants/theme";
 
 type IconButtonProps = {
   icon: keyof typeof Ionicons.glyphMap;
   accessibilityLabel: string;
   onPress: () => void;
-  // ghost: header icons; soft: tinted circle; solid: filled green; outline: bordered square.
-  variant?: "ghost" | "soft" | "solid" | "outline";
+  // ghost: plain icon; round: Figma header button (white circle, raised shadow); soft: tinted circle; solid: filled green; outline: bordered square.
+  variant?: "ghost" | "round" | "soft" | "solid" | "outline";
   size?: number;
   iconSize?: number;
   disabled?: boolean;
@@ -18,7 +18,7 @@ type IconButtonProps = {
 };
 
 export function IconButton({ icon, accessibilityLabel, onPress, variant = "ghost", size = touch.icon, iconSize = 22, disabled, style, children }: IconButtonProps) {
-  const color = variant === "solid" ? colors.surface : variant === "ghost" ? colors.text : colors.primary;
+  const color = variant === "solid" ? colors.surface : variant === "ghost" || variant === "round" ? colors.text : colors.primary;
 
   return (
     <Pressable
@@ -50,6 +50,10 @@ const styles = StyleSheet.create({
   },
   ghost: {
     backgroundColor: "transparent",
+  },
+  round: {
+    backgroundColor: colors.surface,
+    ...shadows.raised,
   },
   soft: {
     backgroundColor: colors.primarySoft,

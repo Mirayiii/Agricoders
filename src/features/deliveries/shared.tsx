@@ -25,7 +25,7 @@ export type DeliverOutcome =
   | { status: "not_saved" }
   | { status: "error"; error: Error };
 
-type DeliverTarget = { id: string; scheduled_date: string; orders?: { order_number?: string; updated_at?: string } | null };
+type DeliverTarget = { id: string; scheduled_date: string; orders?: { order_number?: string; updated_at?: string; packing_version?: number } | null };
 
 /**
  * Marks a stop delivered: one server call marks the stop delivered, completes
@@ -34,22 +34,25 @@ type DeliverTarget = { id: string; scheduled_date: string; orders?: { order_numb
  * the same request id is kept until it's done, so a retry is applied once.
  * What the driver saw (the day and the order's last change) is sent along, so
  * a stop that was reassigned, rescheduled or changed meanwhile is refused for
- * review instead of being overwritten.
+ * review instead of being overwritten. The order's packing version goes too:
+ * the server refuses "delivered" for an order whose items changed since this
+ * screen loaded, or that is being repacked.
  */
 export function useMarkDelivered() {
   const offline = useOffline();
   const ids = useRequestIds();
   const client = useQueryClient();
-  return useCallback(async (delivery: DeliverTarget, receivedBy: string, orderUpdatedAt?: string): Promise<DeliverOutcome> => {
+  return useCallback(async (delivery: DeliverTarget, receivedBy: string, orderUpdatedAt?: string, orderPackingVersion?: number): Promise<DeliverOutcome> => {
     const name = receivedBy.trim();
-    const key = `complete:${delivery.id}:${name}`;
     const seenUpdatedAt = orderUpdatedAt ?? delivery.orders?.updated_at;
+    const packingVersion = orderPackingVersion ?? delivery.orders?.packing_version;
+    const key = `complete:${delivery.id}:${name}:${packingVersion ?? ""}`;
     try {
       const outcome = await offline.run<{ dr_label?: string | null }>({
         id: ids.idFor(key),
         rpc: "offline_complete_delivery",
         args: { p_delivery_id: delivery.id, p_received_by: name || null },
-        seen: { scheduled_date: delivery.scheduled_date, ...(seenUpdatedAt ? { order_updated_at: seenUpdatedAt } : {}) },
+        seen: { scheduled_date: delivery.scheduled_date, ...(seenUpdatedAt ? { order_updated_at: seenUpdatedAt } : {}), ...(packingVersion != null ? { packing_version: packingVersion } : {}) },
         label: `Mark delivered · ${delivery.orders?.order_number ?? "delivery"}`,
         targetId: delivery.id,
       });

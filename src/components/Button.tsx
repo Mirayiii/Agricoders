@@ -13,7 +13,7 @@ import { colors, radii, text } from "@/constants/theme";
 import { Icon, type IconName } from "./Icon";
 
 /** Figma "Button" types. Disabled is a state (the `disabled` prop), not a type. */
-export type ButtonType = "primary" | "secondary" | "outline" | "danger" | "destructive" | "muted" | "brandOutline";
+export type ButtonType = "primary" | "secondary" | "outline" | "danger" | "destructive" | "muted" | "brandOutline" | "dangerQuiet";
 /** Figma sizes: L is 52 high with 16pt text, M is 40 high with 13pt text. */
 export type ButtonSize = "lg" | "md";
 
@@ -50,6 +50,12 @@ const TYPE_STYLES: Record<ButtonType, { container: ViewStyle; pressed: ViewStyle
     container: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary },
     pressed: { backgroundColor: colors.primarySoft },
     label: colors.primary,
+  },
+  // Figma "Sign out": white card-style button with a red label.
+  dangerQuiet: {
+    container: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+    pressed: { backgroundColor: colors.dangerSoft },
+    label: colors.danger,
   },
   danger: {
     // Figma: danger-bg fill with a 1px danger-fg stroke at 30%.

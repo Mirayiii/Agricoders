@@ -17,7 +17,7 @@ export type CustomerOption = { id: string; customer_code: string; business_name:
 export type OrderSourceOption = { id: string; code: string | null; label: string; sort_order: number };
 export type DeliveryTimeOption = { id: string; label: string; starts_at: string | null; ends_at: string | null; sort_order: number };
 
-export type CatalogData = { customers: CustomerOption[]; products: ProductRecord[]; listPrices: PriceRecord[]; availability: AvailabilityRecord[] };
+export type CatalogData = { customers: CustomerOption[]; products: ProductRecord[]; listPrices: PriceRecord[]; availability: AvailabilityRecord[]; outOfStockSkus: string[]; stockLookupFailed?: boolean };
 
 const PRICE_COLUMNS = "product_id,product_sku_id,selling_price,effective_from,effective_to";
 
@@ -32,10 +32,19 @@ export function useNewOrderCatalog() {
         unwrap(supabase.from("products").select("id,product_name,unit_of_measurement,product_skus(id,selling_sku,unit_of_measurement,status)").eq("status", "active").order("product_name").returns<ProductRecord[]>()),
         unwrap(supabase.from("price_history").select(PRICE_COLUMNS).lte("effective_from", now).or(`effective_to.is.null,effective_to.gt.${now}`).returns<PriceRecord[]>()),
       ]);
-      const availability = products.length
-        ? ((await unwrap(supabase.rpc("get_product_inventory_availability", { p_product_ids: products.map((product) => product.id) }))) as AvailabilityRecord[])
-        : [];
-      return { customers, products, listPrices, availability };
+      const ids = products.map((product) => product.id);
+      // Stock is extra information: if a lookup fails, products show no tag and
+      // stay addable (unknown is never treated as zero), and the screen offers a
+      // retry (Jac, 8 Nov). The server still checks on save.
+      let stockLookupFailed = false;
+      const failed = () => { stockLookupFailed = true; return []; };
+      const [availability, outOfStock] = ids.length
+        ? await Promise.all([
+          unwrap(supabase.rpc("get_product_inventory_availability", { p_product_ids: ids })).then((rows) => rows as AvailabilityRecord[], failed),
+          unwrap(supabase.rpc("get_out_of_stock_units", { p_product_ids: ids })).then((rows) => rows as { sku_id: string }[], failed),
+        ])
+        : [[], []];
+      return { customers, products, listPrices, availability, outOfStockSkus: outOfStock.map((row) => row.sku_id), stockLookupFailed };
     },
   });
 }

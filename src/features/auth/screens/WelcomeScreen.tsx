@@ -6,12 +6,13 @@ import { Icon } from "@/components/Icon";
 import { ROLE_META } from "@/constants/roles";
 import { colors, radii, spacing, text } from "@/constants/theme";
 import { useAuth } from "@/features/auth/useAuth";
+import { firstName } from "@/utils/format";
 
 /** Figma "Signed in": shown once after each interactive sign-in (D9). */
 export function WelcomeScreen() {
   const { profile, finishWelcome } = useAuth();
   const insets = useSafeAreaInsets();
-  const name = profile?.full_name?.trim() || profile?.username || "";
+  const name = firstName(profile?.full_name) || profile?.username || "";
   const role = profile ? ROLE_META[profile.role].label : "";
 
   return (
@@ -36,5 +37,5 @@ const styles = StyleSheet.create({
   badgeOuter: { width: 64, height: 64, borderRadius: radii.full, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: spacing.md },
   badgeInner: { width: 32, height: 32, borderRadius: radii.full, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   title: { ...text.display, color: colors.text, textAlign: "center" },
-  subtitle: { ...text.body, color: colors.textSecondary, textAlign: "center" },
+  subtitle: { ...text.body, color: colors.textSecondary, textAlign: "center", marginTop: spacing.sm },
 });

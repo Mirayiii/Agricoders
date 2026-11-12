@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Avatar, BottomSheet, Button, Card, Chip, EmptyState, ErrorState, FormInput, Icon, IconButton, InlineAlert, LoadingState, PressableCard, PrimaryButton, Screen, SearchBar, SecondaryButton, StatusBadge, useToast } from "@/components";
+import { Avatar, BottomSheet, Button, Card, Chip, EmptyState, ErrorState, FormInput, Icon, InlineAlert, LoadingState, PressableCard, PrimaryButton, Screen, SearchBar, SecondaryButton, StatusBadge, useToast } from "@/components";
 import { ROLE_META } from "@/constants/roles";
 import { colors, radii, shadows, spacing, typography } from "@/constants/theme";
 import { useAuth } from "@/features/auth";
@@ -141,7 +141,6 @@ export function UserManagementScreen() {
       title="User management"
       showBackButton
       scroll={false}
-      headerRight={<IconButton icon="person-add" size={40} iconSize={20} accessibilityLabel="Add user" onPress={() => setAdding(true)} />}
     >
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 112 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Card style={styles.filters}>
@@ -167,7 +166,8 @@ export function UserManagementScreen() {
                   <Text style={styles.email} numberOfLines={1}>{user.username}</Text>
                   <Text style={styles.roleLabel}>{ROLE_META[user.role].label}</Text>
                 </View>
-                <StatusBadge label={badge.label} tone={badge.tone} />
+                {/* Figma: the status badge sits centered on the row. */}
+                <View><StatusBadge label={badge.label} tone={badge.tone} /></View>
               </PressableCard>
             );
           }) : <Card><EmptyState icon="people-outline" title="No users found" description="Try another role or search." /></Card>}
@@ -282,11 +282,11 @@ function EditUserForm({ user, isSelf, lockedUntil, saving, error, onSave, onSetA
       ) : null}
       <FormInput label="Full name" value={fullName} onChangeText={setFullName} placeholder="Full name" autoCapitalize="words" />
       {/* D3: only admins rename; the old name stays reserved for 30 days. */}
-      <FormInput label="Username" icon="user" value={username} onChangeText={(v) => setUsername(v.trim().toLowerCase())} error={nameError} autoCapitalize="none" autoCorrect={false} />
+      <FormInput label="Username" value={username} onChangeText={(v) => setUsername(v.trim().toLowerCase())} error={nameError} autoCapitalize="none" autoCorrect={false} />
       {username !== user.username && !nameError ? <Text style={styles.hint}>They sign in with the new username from now on. @{user.username} stays reserved for 30 days.</Text> : null}
       <RoleOptions value={role} onChange={setRole} />
       {!isSelf ? <Button label="Reset password" type="secondary" size="lg" icon="key" disabled={saving} onPress={() => setConfirming("reset")} /> : null}
-      <PrimaryButton label="Save changes" onPress={() => onSave({ full_name: fullName.trim(), role, username })} disabled={!fullName.trim() || !username || Boolean(nameError)} loading={saving} />
+      <PrimaryButton label="Save changes" size="lg" onPress={() => onSave({ full_name: fullName.trim(), role, username })} disabled={!fullName.trim() || !username || Boolean(nameError)} loading={saving} />
       {!isSelf ? (
         <Pressable accessibilityRole="button" disabled={saving} onPress={() => (isActive ? setConfirming("deactivate") : onSetActive(true))} style={styles.toggle}>
           <Text style={[styles.toggleText, { color: isActive ? colors.danger : colors.primary }]}>{isActive ? "Deactivate account" : "Reactivate account"}</Text>
@@ -336,7 +336,6 @@ function AddUserForm({ onCreate }: { onCreate: (requestId: string, payload: { fu
       <FormInput label="Full name" value={fullName} onChangeText={setFullName} placeholder="e.g. Maria Santos" autoCapitalize="words" />
       <FormInput
         label="Username"
-        icon="user"
         value={username}
         onChangeText={(v) => setUsername(v.trim().toLowerCase())}
         error={nameError}
@@ -345,7 +344,7 @@ function AddUserForm({ onCreate }: { onCreate: (requestId: string, payload: { fu
         autoCorrect={false}
       />
       <RoleOptions value={role} onChange={setRole} />
-      <PrimaryButton label="Create account" icon="user-plus" onPress={() => void submit()} disabled={!canSubmit} loading={saving} />
+      <PrimaryButton label="Create account" icon="user-plus" size="lg" onPress={() => void submit()} disabled={!canSubmit} loading={saving} />
     </>
   );
 }

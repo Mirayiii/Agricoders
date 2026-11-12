@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View, type ScrollViewInstance } from "react-native";
+import { PAGE_SIZE, pageSlice } from "@/utils/pagination";
+import { usePage } from "@/utils/usePage";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Card, Chip, EmptyState, ErrorState, Icon, IconButton, LoadingState, Screen, SearchBar, StaleNotice, StockCard, useToast } from "@/components";
+import { Button, Card, EmptyState, ErrorState, Icon, IconButton, LoadingState, Pagination, Screen, SearchBar, SegmentedControl, StaleNotice, StockCard, useToast } from "@/components";
 import { PERMISSIONS } from "@/constants/permissions";
 import { colors, shadows, spacing } from "@/constants/theme";
 import { usePermission } from "@/features/auth";
@@ -11,14 +13,17 @@ import { OfflineReadOnly } from "@/features/sync/OfflineReadOnly";
 import { useIsOnline } from "@/services/offline";
 import { formatMoney } from "@/utils/format";
 import { ProductFormSheet } from "../ProductFormSheet";
-import { useProductsOverview } from "../productsData";
+import { problemText, useProductsOverview, useSetProductArchived } from "../productsData";
 import {
-  STOCK_META, filterCounts, filterProducts, formatQty, marginLabel, productDetailLine, stockLevel,
+  STOCK_META, STOCK_UNAVAILABLE, filterProducts, formatQty, marginLabel, productDetailLine, stockLevel, stockUnknown,
   type ProductFilter, type ProductOverview,
 } from "../productsLogic";
 
-/** Figma "More · Products & stock". */
-export function ProductsScreen({ initialFilter = "all" }: { initialFilter?: ProductFilter }) {
+/**
+ * Figma "More · Products & stock". As in the prototype: All / Stocked tabs, and
+ * an archive button in the header that opens the Archived products page.
+ */
+export function ProductsScreen({ initialFilter = "all", archivedOnly = false }: { initialFilter?: ProductFilter; archivedOnly?: boolean }) {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const online = useIsOnline();
@@ -27,44 +32,56 @@ export function ProductsScreen({ initialFilter = "all" }: { initialFilter?: Prod
   const canPrice = usePermission(PERMISSIONS.managePricing);
   const query = useProductsOverview();
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<ProductFilter>(initialFilter);
+  const [tab, setTab] = useState<"all" | "stocked">(initialFilter === "stocked" ? "stocked" : "all");
+  const filter: ProductFilter = archivedOnly ? "archived" : tab;
   const [adding, setAdding] = useState(false);
+  const restore = useSetProductArchived();
 
-  const rows = query.data ?? [];
-  const counts = filterCounts(rows);
   const visible = useMemo(() => filterProducts(query.data ?? [], filter, search), [query.data, filter, search]);
-  const options: { key: ProductFilter; label: string; count: number }[] = [
-    { key: "all", label: "All", count: counts.all },
-    { key: "stocked", label: "Stocked", count: counts.stocked },
-    { key: "low", label: "Low stock", count: counts.low },
-    { key: "out", label: "Out of stock", count: counts.out },
-    ...(counts.archived || filter === "archived" ? [{ key: "archived" as const, label: "Archived", count: counts.archived }] : []),
-  ];
+  // Prototype: 15 products per page; a new search or tab starts at page 1.
+  const [page, setPage] = usePage(`${search.trim()}|${filter}`);
+  const scroller = useRef<ScrollViewInstance>(null);
+  const goTo = (next: number) => { setPage(next); scroller.current?.scrollTo({ y: 0, animated: false }); };
+
+  function restoreProduct(row: ProductOverview) {
+    restore.mutate({ productId: row.id, archived: false }, {
+      onSuccess: () => toast({ title: `${row.product_name} restored`, message: "Available for new orders again" }),
+      onError: (error) => toast({ title: "Not restored", message: problemText(error), tone: "error" }),
+    });
+  }
 
   return (
     <Screen
-      title="Products & stock"
+      title={archivedOnly ? "Archived products" : "Products & stock"}
       showBackButton
       scroll={false}
-      headerRight={canManage || canPrice ? (
+      headerRight={archivedOnly ? undefined : (
         <View style={styles.headerActions}>
           {/* Batch prices moved here from the More menu (Phase 9, as in Figma). */}
           {/* Offline these stay visible but disabled (Figma; Jac, 4 Nov). */}
-          {canPrice ? <IconButton icon="pricetag-outline" size={40} iconSize={20} accessibilityLabel={online ? "Batch update prices" : "Batch update prices. Requires a connection"} disabled={!online} onPress={() => router.push("/pricing")} /> : null}
-          {canManage ? <IconButton icon="add" size={40} iconSize={20} accessibilityLabel={online ? "Add product" : "Add product. Requires a connection"} disabled={!online} onPress={() => setAdding(true)} /> : null}
+          {canPrice ? <IconButton icon="pricetag-outline" variant="round" size={40} iconSize={20} accessibilityLabel={online ? "Batch update prices" : "Batch update prices. Requires a connection"} disabled={!online} onPress={() => router.push("/pricing")} /> : null}
+          {canManage ? <IconButton icon="add" variant="round" size={40} iconSize={20} accessibilityLabel={online ? "Add product" : "Add product. Requires a connection"} disabled={!online} onPress={() => setAdding(true)} /> : null}
+          {/* Prototype: archived products open from a header button (not in Figma; same IconButton). */}
+          <IconButton icon="archive-outline" variant="round" size={40} iconSize={20} accessibilityLabel="Archived products" onPress={() => router.push("/products/archived")} />
         </View>
-      ) : undefined}
+      )}
     >
       <ScrollView
+        ref={scroller}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 112 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.primary} />}
       >
         <SearchBar value={search} onChangeText={setSearch} placeholder="Search product or SKU" />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {options.map((option) => <Chip key={option.key} label={option.label} count={option.count} selected={filter === option.key} onPress={() => setFilter(option.key)} />)}
-        </ScrollView>
+        {archivedOnly ? null : (
+          <SegmentedControl
+            tone="light"
+            options={[{ key: "all", label: "All" }, { key: "stocked", label: "Stocked" }]}
+            value={tab}
+            onChange={(key) => setTab(key as "all" | "stocked")}
+          />
+        )}
         <StaleNotice query={query} />
         <OfflineReadOnly what="products" />
         {query.isPending ? (
@@ -72,18 +89,25 @@ export function ProductsScreen({ initialFilter = "all" }: { initialFilter?: Prod
         ) : query.isError && !query.data ? (
           <ErrorState description="Products couldn’t be loaded." onRetry={() => void query.refetch()} />
         ) : visible.length ? (
-          visible.map((row) => <ProductCard key={row.id} row={row} showPrice={canPrice} />)
+          pageSlice(visible, page, PAGE_SIZE).map((row) => (
+            <View key={row.id} style={archivedOnly ? styles.archivedRow : undefined}>
+              <ProductCard row={row} showPrice={canPrice} />
+              {archivedOnly && canManage ? (
+                <Button label="Restore" type="brandOutline" size="md" icon="refresh" disabled={!online || restore.isPending} onPress={() => restoreProduct(row)} />
+              ) : null}
+            </View>
+          )).concat(<Pagination key="pages" page={page} total={visible.length} pageSize={PAGE_SIZE} onChange={goTo} label="products" />)
         ) : (
           <Card>
             <EmptyState
               icon="leaf-outline"
-              title={search ? "No products found" : filter === "stocked" ? "No stocked products" : filter === "low" ? "No low-stock products" : filter === "out" ? "Nothing is out of stock" : filter === "archived" ? "No archived products" : "No products yet"}
-              description={search ? "Try another name or SKU code." : filter === "stocked" ? "Turn on Track inventory on a product to count its stock here." : filter === "low" || filter === "out" ? "Tracked products below their minimum stock show here." : filter === "archived" ? "Archived products appear here. Past orders keep them." : "Add your first product with the + button."}
+              title={search ? "No products found" : filter === "stocked" ? "No stocked products" : filter === "archived" ? "No archived products" : "No products yet"}
+              description={search ? "Try another filter or search." : filter === "stocked" ? "Turn on Track inventory on a product to count its stock here." : filter === "archived" ? "Archived products appear here. Past orders keep them." : "Add your first product with the + button."}
             />
           </Card>
         )}
       </ScrollView>
-      {canManage ? (
+      {canManage && !archivedOnly ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Add product"
@@ -124,8 +148,8 @@ function ProductCard({ row, showPrice }: { row: ProductOverview; showPrice: bool
         price={price}
         margin={marginLabel(row.margin_percent) ?? undefined}
         muted={archived}
-        accessibilityLabel={`${row.product_name}${meta ? `, ${meta.label}, ${formatQty(quantity)} ${row.unit ?? ""} in stock` : ""}`}
-        stock={tracked && meta ? {
+        accessibilityLabel={`${row.product_name}${meta ? `, ${meta.label}, ${formatQty(quantity)} ${row.unit ?? ""} in stock` : stockUnknown(row) ? `, ${STOCK_UNAVAILABLE.label}` : ""}`}
+        stock={stockUnknown(row) ? { badge: STOCK_UNAVAILABLE, value: "No stock count", level: 0, tone: "neutral" } : tracked && meta ? {
           badge: meta,
           value: `${formatQty(quantity)} ${row.unit ?? ""}`.trim(),
           level: stockLevel(quantity, row.low_stock_threshold),
@@ -139,7 +163,7 @@ function ProductCard({ row, showPrice }: { row: ProductOverview; showPrice: bool
 
 const styles = StyleSheet.create({
   headerActions: { flexDirection: "row", gap: spacing.sm },
-  chips: { flexDirection: "row", gap: spacing.sm },
+  archivedRow: { gap: spacing.sm },
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md },
   fab: { position: "absolute", right: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", ...shadows.card, elevation: 6 },
   fabPressed: { backgroundColor: colors.primaryPressed },
